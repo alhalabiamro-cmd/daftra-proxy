@@ -4,7 +4,7 @@ import requests
 app = Flask(__name__)
 
 DAFTRA_BASE = 'https://maealequrtoba.daftra.com/api2'
-APIKEY = '670d593bdb3158eb24684c4342b3e474b9403dc9'
+APIKEY = 'c4c035341dbe1da1531b227d89f6e2f481252766'
 
 @app.after_request
 def add_cors(response):
@@ -17,20 +17,20 @@ def add_cors(response):
 def proxy(endpoint):
     if request.method == 'OPTIONS':
         return jsonify({}), 200
-    
     url = f"{DAFTRA_BASE}/{endpoint}"
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
-    
-    if request.method == 'GET':
-        resp = requests.get(url, headers=headers, params=request.args)
-    elif request.method == 'POST':
-        resp = requests.post(url, headers=headers, json=request.get_json())
-    elif request.method == 'PUT':
-        resp = requests.put(url, headers=headers, json=request.get_json())
-    elif request.method == 'DELETE':
-        resp = requests.delete(url, headers=headers)
-    
-    return jsonify(resp.json()), resp.status_code
+    try:
+        if request.method == 'GET':
+            resp = requests.get(url, headers=headers, params=request.args, timeout=30)
+        elif request.method == 'POST':
+            resp = requests.post(url, headers=headers, json=request.get_json(), timeout=30)
+        elif request.method == 'PUT':
+            resp = requests.put(url, headers=headers, json=request.get_json(), timeout=30)
+        elif request.method == 'DELETE':
+            resp = requests.delete(url, headers=headers, timeout=30)
+        return jsonify(resp.json()), resp.status_code
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/')
 def health():
