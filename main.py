@@ -17,7 +17,7 @@ def cors(response):
 
 @app.route('/bank-sync')
 def bank_sync():
-    response = make_response(send_file('bank-sync.html'))
+    response = make_response(send_file('app.html'))
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
