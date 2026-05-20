@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مزامنة البنك ← دفترة | معالي قرطبة</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;
+  --text:#f0f0f0;--muted:#777;--accent:#c9a96e;--accent2:#e8c88a;
+  --green:#4caf50;--red:#ef5350;--blue:#42a5f5;--orange:#ffa726;
+}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;padding:24px}
+.app{max-width:960px;margin:0 auto}
+
+/* Header */
+.header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border)}
+.logo{display:flex;align-items:center;gap:12px}
+.logo-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
+.logo-text h1{font-size:16px;font-weight:700;color:var(--text)}
+.logo-text p{font-size:12px;color:var(--muted)}
+.status-pill{padding:5px 12px;border-radius:20px;font-size:11px;font-weight:600;background:#1a2a1a;color:var(--green);border:1px solid #2a4a2a}
+
+/* Steps */
+.steps{display:flex;gap:8px;margin-bottom:28px}
+.step{flex:1;padding:10px 14px;border-radius:8px;border:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--muted);display:flex;align-items:center;gap:8px;transition:.2s}
+.step.active{border-color:var(--accent);color:var(--accent);background:#1a1500}
+.step.done{border-color:#2a4a2a;color:var(--green);background:#0f1a0f}
+.step-num{width:22px;height:22px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.step.active .step-num{background:var(--accent);color:#000}
+.step.done .step-num{background:var(--green);color:#000}
+
+/* Upload area */
+.upload-area{border:2px dashed var(--border);border-radius:14px;padding:48px 24px;text-align:center;cursor:pointer;transition:.3s;background:var(--surface)}
+.upload-area:hover,.upload-area.drag{border-color:var(--accent);background:#1a1500}
+.upload-area h3{font-size:16px;color:var(--text);margin-bottom:8px}
+.upload-area p{font-size:13px;color:var(--muted)}
+.upload-icon{font-size:48px;margin-bottom:16px}
+.btn-upload{display:inline-block;margin-top:16px;padding:10px 24px;background:var(--accent);color:#000;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none}
+#file-input{display:none}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* Analysis progress */
+.progress-wrap{display:none}
+.progress-bar-bg{background:var(--border);border-radius:20px;height:6px;margin:12px 0}
+.progress-bar{background:linear-gradient(90deg,var(--accent),var(--accent2));height:6px;border-radius:20px;transition:width .4s;width:0%}
+.progress-text{font-size:13px;color:var(--muted);text-align:center}
+.log{background:var(--surface2);border-radius:8px;padding:12px;font-size:12px;color:var(--muted);max-height:120px;overflow-y:auto;margin-top:8px;font-family:monospace}
+.log div{margin-bottom:3px}
+.log .ok{color:var(--green)}
+.log .info{color:var(--blue)}
+.log .warn{color:var(--orange)}
+
+/* Summary cards */
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px}
+.metric{background:var(--surface2);border-radius:10px;padding:14px;text-align:center}
+.metric .lbl{font-size:11px;color:var(--muted);margin-bottom:6px}
+.metric .val{font-size:20px;font-weight:700;color:var(--text)}
+.metric .val.green{color:var(--green)}
+.metric .val.red{color:var(--red)}
+.metric .val.gold{color:var(--accent)}
+
+/* Transaction table */
+.txn-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filter-btn{padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:.2s}
+.filter-btn:hover,.filter-btn.on{border-color:var(--accent);color:var(--accent);background:#1a1500}
+.txn-table{width:100%;border-collapse:collapse;font-size:13px}
+.txn-table th{text-align:right;padding:8px 12px;font-size:11px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);text-transform:uppercase}
+.txn-table td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.txn-table tr:last-child td{border-bottom:none}
+.txn-table tr:hover td{background:var(--surface2)}
+.cat-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.cat-client{background:#0f2a0f;color:#4caf50}
+.cat-china{background:#2a1a00;color:#ffa726}
+.cat-salary{background:#0f1a2a;color:#42a5f5}
+.cat-rent{background:#2a0f2a;color:#ce93d8}
+.cat-personal{background:#2a0f0f;color:#ef9a9a}
+.cat-supplier{background:#1a1a00;color:#fff176}
+.cat-other{background:#1a1a1a;color:#777}
+.cat-fee{background:#1a1a1a;color:#555}
+.chk{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
+.amount-in{color:var(--green);font-weight:600}
+.amount-out{color:var(--red)}
+
+/* Action bar */
+.action-bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);padding:16px 0;margin-top:20px;display:none}
+.action-bar-inner{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.action-bar .sel-info{font-size:13px;color:var(--muted)}
+.action-bar .sel-info strong{color:var(--accent);font-size:15px}
+.btn-post{padding:12px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;transition:.2s}
+.btn-post:hover{background:var(--accent2)}
+.btn-post:disabled{opacity:.4;cursor:not-allowed}
+.btn-outline{padding:10px 18px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer}
+.btn-outline:hover{border-color:var(--muted);color:var(--text)}
+
+/* Result modal */
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:480px;width:90%;text-align:center}
+.modal h2{font-size:20px;margin-bottom:10px}
+.modal p{font-size:13px;color:var(--muted);margin-bottom:20px}
+.modal .big-num{font-size:48px;font-weight:700;color:var(--accent);margin:12px 0}
+.modal-btn{padding:10px 24px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;cursor:pointer;font-size:14px}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="header">
+    <div class="logo">
+      <div class="logo-icon">🏦</div>
+      <div class="logo-text">
+        <h1>مزامنة البنك ← دفترة</h1>
+        <p>معالي قرطبة للرخام</p>
+      </div>
+    </div>
+    <div class="status-pill" id="conn-pill">⏳ جاري الاتصال...</div>
+  </div>
+
+  <div class="steps">
+    <div class="step active" id="step1"><div class="step-num">1</div>رفع الكشف</div>
+    <div class="step" id="step2"><div class="step-num">2</div>تحليل الذكاء الاصطناعي</div>
+    <div class="step" id="step3"><div class="step-num">3</div>مراجعة وتسجيل</div>
+  </div>
+
+  <!-- Step 1: Upload -->
+  <div id="screen-upload">
+    <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+      <div class="upload-icon">📄</div>
+      <h3>ارفع كشف الحساب البنكي</h3>
+      <p>PDF من الراجحي أو بنك الرياض أو أي بنك آخر</p>
+      <label class="btn-upload">اختر ملف PDF</label>
+      <input type="file" id="file-input" accept=".pdf" onchange="handleFile(this.files[0])">
+    </div>
+  </div>
+
+  <!-- Step 2: Analysis -->
+  <div id="screen-analysis" style="display:none">
+    <div class="card">
+      <div class="card-title">🤖 الذكاء الاصطناعي يحلل الكشف</div>
+      <div class="progress-wrap" id="prog-wrap" style="display:block">
+        <div class="progress-bar-bg"><div class="progress-bar" id="prog-bar"></div></div>
+        <div class="progress-text" id="prog-text">جاري استخراج النص...</div>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Review & Post -->
+  <div id="screen-review" style="display:none">
+    <div class="metrics" id="metrics"></div>
+
+    <div class="card">
+      <div class="card-title">📋 المعاملات المكتشفة
+        <span style="margin-right:auto;font-size:12px;color:var(--muted);font-weight:400" id="txn-count"></span>
+      </div>
+      <div class="txn-filters" id="filters"></div>
+      <div style="overflow-x:auto">
+        <table class="txn-table">
+          <thead><tr>
+            <th><input type="checkbox" class="chk" id="chk-all" onchange="toggleAll(this.checked)"></th>
+            <th>التاريخ</th>
+            <th>الوصف</th>
+            <th>التصنيف</th>
+            <th>المبلغ</th>
+            <th>الإجراء في دفترة</th>
+          </tr></thead>
+          <tbody id="txn-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="action-bar" id="action-bar">
+    <div class="action-bar-inner">
+      <div class="sel-info">تم اختيار <strong id="sel-count">0</strong> معاملة</div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-outline" onclick="selectRelevant()">اختر المهمة فقط</button>
+        <button class="btn-post" id="post-btn" onclick="postToDaftra()">✅ سجّل في دفترة</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Result modal -->
+<div class="modal-bg" id="modal">
+  <div class="modal">
+    <div style="font-size:48px">🎉</div>
+    <h2>تم التسجيل!</h2>
+    <div class="big-num" id="modal-num">0</div>
+    <p id="modal-text">معاملة تم تسجيلها في دفترة بنجاح</p>
+    <button class="modal-btn" onclick="document.getElementById('modal').classList.remove('show');location.reload()">ارفع كشفاً جديداً</button>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const PROXY = 'https://web-production-996d9.up.railway.app';
+const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
+
+let allTxns = [];
+let filtered = [];
+let currentFilter = 'all';
+
+// Check proxy
+async function checkProxy(){
+  try{
+    const r = await fetch(`${PROXY}/`);
+    const d = await r.json();
+    if(d.status==='ok'){
+      document.getElementById('conn-pill').textContent='🟢 متصل بدفترة';
+      document.getElementById('conn-pill').style.background='#0f2a0f';
+    }
+  }catch(e){
+    document.getElementById('conn-pill').textContent='🔴 خطأ في الاتصال';
+    document.getElementById('conn-pill').style.color='var(--red)';
+  }
+}
+checkProxy();
+
+function log(msg, type='info'){
+  const l = document.getElementById('log');
+  const d = document.createElement('div');
+  d.className = type;
+  d.textContent = '› ' + msg;
+  l.appendChild(d);
+  l.scrollTop = l.scrollHeight;
+}
+
+function setProgress(pct, msg){
+  document.getElementById('prog-bar').style.width = pct + '%';
+  document.getElementById('prog-text').textContent = msg;
+}
+
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('drag');
+  const file = e.dataTransfer.files[0];
+  if(file && file.type === 'application/pdf') handleFile(file);
+  else alert('الرجاء رفع ملف PDF');
+}
+
+async function handleFile(file){
+  if(!file) return;
+  document.getElementById('screen-upload').style.display='none';
+  document.getElementById('screen-analysis').style.display='block';
+  document.getElementById('step1').className='step done';
+  document.getElementById('step2').className='step active';
+
+  log('جاري قراءة الملف: ' + file.name);
+  setProgress(10, 'جاري استخراج النص من PDF...');
+
+  try {
+    const text = await extractPDFText(file);
+    log('تم استخراج ' + text.length + ' حرف من الكشف', 'ok');
+    setProgress(35, 'جاري إرسال الكشف للذكاء الاصطناعي...');
+    await analyzeWithClaude(text);
+  } catch(e) {
+    log('خطأ: ' + e.message, 'warn');
+  }
+}
+
+async function extractPDFText(file){
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  let text = '';
+  for(let i=1; i<=pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(s=>s.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+async function analyzeWithClaude(bankText){
+  log('الذكاء الاصطناعي يصنف المعاملات...');
+
+  const systemPrompt = `أنت محاسب خبير لشركة معالي قرطبة للرخام في السعودية.
+تقوم بتحليل كشوفات الحساب البنكي وتصنيف كل معاملة.
+
+للتصنيفات:
+- client_payment: دفعات واردة من عملاء (للتسجيل في دفترة كدفعة على فاتورة)
+- china_supplier: تحويلات للصين (Forwanli, GBOUEO) 
+- local_supplier: مدفوعات لموردين محليين (شركات رخام، بناء)
+- salary: رواتب (مداد، payroll، رواتب)
+- rent: إيجارات (جني مارين، سليمان المهوس، ايجار)
+- personal: مسحوبات شخصية (AMRO، عمرو الحلبي)
+- government: حكومي (سداد، إقامات، مخالفات، زكاة، GOSI)
+- bank_fee: رسوم بنكية
+- internal: تحويلات داخلية بين حسابات الشركة
+- other: أخرى
+
+أرجع JSON فقط بدون أي نص آخر:
+{
+  "bank": "اسم البنك",
+  "period": "الفترة",
+  "opening": رقم,
+  "closing": رقم,
+  "transactions": [
+    {
+      "date": "YYYY-MM-DD",
+      "description": "وصف مختصر بالعربي",
+      "amount": رقم موجب دائماً,
+      "direction": "in" أو "out",
+      "category": "التصنيف من القائمة",
+      "party": "اسم الطرف الآخر إن وجد",
+      "daftra_action": "record_payment" أو "record_expense" أو "skip",
+      "notes": "ملاحظة قصيرة"
+    }
+  ]
+}
+
+تجاهل رسوم البنك الصغيرة (أقل من 10 ريال) والتحويلات الداخلية.
+للمعاملات المهمة فقط ضع daftra_action = record_payment أو record_expense.`;
+
+  // Split text into chunks if too long
+  const maxChars = 15000;
+  const textChunk = bankText.length > maxChars ? bankText.substring(0, maxChars) : bankText;
+
+  try {
+    const response = await fetch(CLAUDE_API, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{role: 'user', content: `حلل هذا الكشف البنكي:\n\n${textChunk}`}]
+      })
+    });
+
+    setProgress(70, 'جاري معالجة النتائج...');
+    const data = await response.json();
+    const raw = data.content[0].text;
+
+    // Parse JSON
+    let result;
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      result = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
+    } catch(e) {
+      throw new Error('خطأ في تحليل الرد: ' + raw.substring(0,200));
+    }
+
+    log(`تم اكتشاف ${result.transactions?.length || 0} معاملة`, 'ok');
+    setProgress(90, 'جاري تحميل بيانات دفترة...');
+
+    // Load invoices from Daftra for matching
+    const invoices = await loadDaftraInvoices();
+    log(`تم تحميل ${invoices.length} فاتورة من دفترة`, 'ok');
+
+    setProgress(100, 'اكتمل التحليل ✓');
+
+    allTxns = result.transactions || [];
+    renderReview(result, invoices);
+
+  } catch(e) {
+    log('خطأ في التحليل: ' + e.message, 'warn');
+    // Fallback: manual parse
+    log('جاري التحليل اليدوي...', 'info');
+    const txns = fallbackParse(bankText);
+    allTxns = txns;
+    renderReview({bank:'الراجحي', transactions: txns}, []);
+  }
+}
+
+async function loadDaftraInvoices(){
+  try {
+    const r = await fetch(`${PROXY}/invoices?page=1`);
+    const d = await r.json();
+    const total = d.pagination?.page_count || 1;
+    let all = (d.data||[]).map(i=>i.Invoice||i);
+    for(let p=2; p<=Math.min(total,5); p++){
+      const r2 = await fetch(`${PROXY}/invoices?page=${p}`);
+      const d2 = await r2.json();
+      all = all.concat((d2.data||[]).map(i=>i.Invoice||i));
+    }
+    return all.filter(i=>Number(i.summary_unpaid||0)>0);
+  } catch(e){ return []; }
+}
+
+function fallbackParse(text){
+  // Simple regex-based parser as fallback
+  const lines = text.split('\n');
+  const txns = [];
+  const dateRegex = /(\d{4}\/\d{2}\/\d{2}|\d{2}\/\d{2}\/\d{4})/;
+  const amountRegex = /[\d,]+\.\d{2}/g;
+  lines.forEach(line => {
+    if(dateRegex.test(line) && amountRegex.test(line)){
+      const amounts = line.match(amountRegex) || [];
+      if(amounts.length > 0){
+        txns.push({
+          date: (line.match(dateRegex)||[''])[0],
+          description: line.substring(0,60).trim(),
+          amount: parseFloat(amounts[0].replace(/,/g,'')),
+          direction: line.includes('دائن') ? 'in' : 'out',
+          category: 'other',
+          daftra_action: 'skip'
+        });
+      }
+    }
+  });
+  return txns.slice(0,100);
+}
+
+function renderReview(result, invoices){
+  document.getElementById('screen-analysis').style.display='none';
+  document.getElementById('screen-review').style.display='block';
+  document.getElementById('step2').className='step done';
+  document.getElementById('step3').className='step active';
+  document.getElementById('action-bar').style.display='block';
+
+  const txns = result.transactions || [];
+  const incoming = txns.filter(t=>t.direction==='in').reduce((s,t)=>s+Number(t.amount||0),0);
+  const outgoing = txns.filter(t=>t.direction==='out').reduce((s,t)=>s+Number(t.amount||0),0);
+  const toRecord = txns.filter(t=>t.daftra_action!=='skip').length;
+  const clients = txns.filter(t=>t.category==='client_payment').length;
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="lbl">إجمالي الإيداعات</div><div class="val green">${fmt(incoming)}</div></div>
+    <div class="metric"><div class="lbl">إجمالي السحوبات</div><div class="val red">${fmt(outgoing)}</div></div>
+    <div class="metric"><div class="lbl">للتسجيل في دفترة</div><div class="val gold">${toRecord}</div></div>
+    <div class="metric"><div class="lbl">دفعات عملاء</div><div class="val green">${clients}</div></div>
+    <div class="metric"><div class="lbl">المعاملات الكلية</div><div class="val">${txns.length}</div></div>
+  `;
+
+  // Build filters
+  const cats = [...new Set(txns.map(t=>t.category))];
+  const catNames = {client_payment:'دفعات عملاء',china_supplier:'الصين',local_supplier:'موردون محليون',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',internal:'داخلي',other:'أخرى'};
+  let filterHTML = `<button class="filter-btn on" onclick="filterTxns('all',this)">الكل (${txns.length})</button>`;
+  filterHTML += `<button class="filter-btn" onclick="filterTxns('to_record',this)">للتسجيل (${toRecord})</button>`;
+  cats.forEach(c=>{
+    const count = txns.filter(t=>t.category===c).length;
+    filterHTML += `<button class="filter-btn" onclick="filterTxns('${c}',this)">${catNames[c]||c} (${count})</button>`;
+  });
+  document.getElementById('filters').innerHTML = filterHTML;
+
+  // Render table with invoice matching
+  filtered = [...txns];
+  renderTable(filtered, invoices);
+  updateSelCount();
+}
+
+function filterTxns(type, btn){
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  currentFilter = type;
+  if(type==='all') filtered=[...allTxns];
+  else if(type==='to_record') filtered=allTxns.filter(t=>t.daftra_action!=='skip');
+  else filtered=allTxns.filter(t=>t.category===type);
+  renderTable(filtered, window._invoices||[]);
+}
+
+function renderTable(txns, invoices){
+  window._invoices = invoices;
+  const catClass = {client_payment:'cat-client',china_supplier:'cat-china',local_supplier:'cat-supplier',salary:'cat-salary',rent:'cat-rent',personal:'cat-personal',government:'cat-other',bank_fee:'cat-fee',internal:'cat-fee',other:'cat-other'};
+  const catNames = {client_payment:'دفعة عميل',china_supplier:'صين',local_supplier:'مورد محلي',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',internal:'داخلي',other:'أخرى'};
+  const actionNames = {record_payment:'💳 تسجيل دفعة',record_expense:'💸 تسجيل مصروف',skip:'—'};
+
+  document.getElementById('txn-count').textContent = txns.length + ' معاملة';
+
+  document.getElementById('txn-body').innerHTML = txns.map((t,i)=>{
+    const cls = catClass[t.category]||'cat-other';
+    const amtClass = t.direction==='in'?'amount-in':'amount-out';
+    const sign = t.direction==='in'?'+':'-';
+    const checked = t.daftra_action!=='skip' ? 'checked' : '';
+
+    // Find matching invoice
+    let matchHTML = '';
+    if(t.category==='client_payment' && invoices.length){
+      const match = findMatchingInvoice(t, invoices);
+      if(match){
+        matchHTML = `<div style="font-size:11px;color:var(--accent);margin-top:3px">🔗 ${match.no} — ${match.client_business_name}</div>`;
+        t._invoice_id = match.id;
+      }
+    }
+
+    return `<tr>
+      <td><input type="checkbox" class="chk txn-chk" data-idx="${i}" ${checked} onchange="updateSelCount()"></td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td>
+      <td>
+        <div style="font-size:13px">${t.description||'—'}</div>
+        ${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}
+        ${matchHTML}
+      </td>
+      <td><span class="cat-badge ${cls}">${catNames[t.category]||t.category}</span></td>
+      <td class="${amtClass}" style="text-align:left;white-space:nowrap">${sign} ${fmt(t.amount)}</td>
+      <td style="font-size:12px;color:var(--muted)">${actionNames[t.daftra_action]||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+function findMatchingInvoice(txn, invoices){
+  const party = (txn.party||'').toLowerCase();
+  const desc = (txn.description||'').toLowerCase();
+  const amt = Number(txn.amount||0);
+
+  // Match by amount first (within 5%)
+  const byAmt = invoices.filter(inv=>{
+    const unpaid = Number(inv.summary_unpaid||0);
+    return unpaid > 0 && Math.abs(unpaid - amt)/amt < 0.05;
+  });
+  if(byAmt.length===1) return byAmt[0];
+
+  // Match by client name
+  const byName = invoices.filter(inv=>{
+    const client = (inv.client_business_name||'').toLowerCase();
+    return party && client.includes(party.substring(0,4));
+  });
+  if(byName.length===1) return byName[0];
+
+  return null;
+}
+
+function toggleAll(checked){
+  document.querySelectorAll('.txn-chk').forEach(c=>c.checked=checked);
+  updateSelCount();
+}
+
+function selectRelevant(){
+  document.querySelectorAll('.txn-chk').forEach((c,i)=>{
+    const idx = parseInt(c.dataset.idx);
+    const txn = filtered[idx];
+    c.checked = txn && txn.daftra_action!=='skip';
+  });
+  updateSelCount();
+}
+
+function updateSelCount(){
+  const count = document.querySelectorAll('.txn-chk:checked').length;
+  document.getElementById('sel-count').textContent = count;
+  document.getElementById('post-btn').disabled = count===0;
+}
+
+function fmt(n){ return Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+
+async function postToDaftra(){
+  const btn = document.getElementById('post-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري التسجيل...';
+
+  const checked = document.querySelectorAll('.txn-chk:checked');
+  let success = 0, failed = 0;
+
+  for(const chk of checked){
+    const idx = parseInt(chk.dataset.idx);
+    const txn = filtered[idx];
+    if(!txn) continue;
+
+    try {
+      if(txn.daftra_action==='record_payment' && txn._invoice_id){
+        // Record client payment
+        const r = await fetch(`${PROXY}/client_payments`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            ClientPayment:{
+              invoice_id: txn._invoice_id,
+              amount: txn.amount,
+              payment_method: 'bank_transfer',
+              date: txn.date,
+              notes: txn.description + (txn.notes?' — '+txn.notes:'')
+            }
+          })
+        });
+        const d = await r.json();
+        if(r.ok) success++; else failed++;
+
+      } else if(txn.daftra_action==='record_expense'){
+        // Record expense
+        const r = await fetch(`${PROXY}/expenses`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            Expense:{
+              amount: txn.amount,
+              date: txn.date,
+              description: txn.description,
+              notes: txn.notes||''
+            }
+          })
+        });
+        const d = await r.json();
+        if(r.ok) success++; else failed++;
+
+      } else {
+        success++; // Skip — count as done
+      }
+    } catch(e){ failed++; }
+  }
+
+  // Show result
+  document.getElementById('modal-num').textContent = success;
+  document.getElementById('modal-text').textContent = `معاملة تم تسجيلها في دفترة${failed>0?' ('+failed+' فشلت)':''}`;
+  document.getElementById('modal').classList.add('show');
+  btn.textContent = '✅ سجّل في دفترة';
+}
+</script>
+</body>
+</html>
