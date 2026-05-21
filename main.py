@@ -37,7 +37,7 @@ Analyze bank statements and classify each transaction.
 Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other
 Return ONLY valid JSON:
 {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
-    text_chunk = bank_text[:18000]
+text_chunk = bank_text[:8000]
     try:
         message = client.messages.create(
             model="claude-haiku-4-5-20251001",
