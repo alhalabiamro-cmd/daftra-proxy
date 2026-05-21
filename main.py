@@ -40,7 +40,7 @@ Return ONLY valid JSON:
     text_chunk = bank_text[:18000]
     try:
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+           claude-sonnet-4-5
             max_tokens=8000,
             system=system_prompt,
             messages=[{"role": "user", "content": f"Analyze this bank statement:\n\n{text_chunk}"}]
