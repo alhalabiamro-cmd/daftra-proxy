@@ -30,7 +30,24 @@ def analyze_bank():
     if not ANTHROPIC_KEY:
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    prompt = "You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia. Known employees always classify as salary: SALAMUDDIN is Installation Manager Riyadh, SIKANDAR is Installation Manager Dammam, TAUFEEK or TAUFEEQ is Driver, YAZEEN or يزن is Branch Manager Qassim, MALIK or مالك is Freelance Installer Qassim, IBRAHIM or ابراهيم is Transportation. Owner personal draws are AMRO or عمرو الحلبي. Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other. Return ONLY valid JSON: {\"bank\":\"\",\"period\":\"\",\"opening\":0,\"closing\":0,\"transactions\":[{\"date\":\"YYYY-MM-DD\",\"description\":\"\",\"amount\":0,\"direction\":\"in or out\",\"category\":\"\",\"party\":\"\",\"daftra_action\":\"record_payment or record_expense or skip\",\"notes\":\"\"}]}"
+    prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
+
+IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as "عملية تحويل داخلية" (internal transfer). This does NOT mean it is an internal company transfer. If money is coming IN from this type of transaction, it is likely a client_payment. If money is going OUT, classify based on who receives it.
+
+Known employees - always classify as salary:
+- SALAMUDDIN = Installation Manager Riyadh
+- SIKANDAR = Installation Manager Dammam  
+- TAUFEEK or TAUFEEQ = Driver
+- YAZEEN or يزن = Branch Manager Qassim
+- MALIK or مالك = Freelance Installer Qassim
+- IBRAHIM or ابراهيم = Transportation
+- عبدالحسيب = Employee
+
+Owner personal draws - classify as personal:
+- AMRO or عمرو الحلبي = Owner
+- اميرة = Owner's mother
+
+Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
