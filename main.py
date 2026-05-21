@@ -32,22 +32,55 @@ def analyze_bank():
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
 
-IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as "عملية تحويل داخلية" (internal transfer). This does NOT mean it is an internal company transfer. If money is coming IN from this type of transaction, it is likely a client_payment. If money is going OUT, classify based on who receives it.
+IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as "عملية تحويل داخلية" (internal transfer). This does NOT mean it is an internal company transfer. If money is coming IN, it is likely a client_payment. If money is going OUT, classify based on who receives it.
 
 Known employees - always classify as salary:
 - SALAMUDDIN = Installation Manager Riyadh
-- SIKANDAR = Installation Manager Dammam  
+- SIKANDAR = Installation Manager Dammam
 - TAUFEEK or TAUFEEQ = Driver
 - YAZEEN or يزن = Branch Manager Qassim
 - MALIK or مالك = Freelance Installer Qassim
-- IBRAHIM or ابراهيم = Transportation
-- عبدالحسيب = Employee
+
+Known transportation - always classify as transportation:
+- IBRAHIM or ابراهيم = Truck/Freight
+- عبدالحسيب = Internal delivery driver Riyadh and Eastern Province
+
+Known local suppliers - always classify as local_supplier:
+- شركة السنا للرخام والسراميك = Al-Sana marble supplier
+- شركة مصنع واهوي للرخام = Wahhawe marble factory
+- شركة قمم الشام للتجارة = local marble supplier
+- شركة بيتي الانيق للتجارة = marble supplier
+- شركة نرجس للتجارة = marble supplier
+- القصر الانيق = marble supplier
+- مؤسسة جنى مارين للتجارة = marble supplier
+
+Known clients - always classify as client_payment when money comes IN:
+- مؤسسة مهجة التجارية = client
+- MISHARY ADEL ALZAMIL = client
+- SHARAF AMER ALTALHI = client
+- هشام المسيند = client
+- نور البنعلى = client
+- اسامه زيد العنزي = client
+- وليد الجحيش = client
+- سفيان زامل الزامل = client
 
 Owner personal draws - classify as personal:
 - AMRO or عمرو الحلبي = Owner
 - اميرة = Owner's mother
 
-Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
+Other known classifications:
+- سليمان المهوس = rent (Buraydah Branch)
+- مؤسسة جي مارين للتجارة = rent (Riyadh Branch)
+- China Supplier or GBOUEO02 = china_supplier
+- وزارة العدل = legal
+- Traffic violations = government
+- Sadad payments = government
+- Al Rajhi loan installments LOANFLEET = loan
+- Mudud payroll = salary
+- نقاط بيع MALI QURTOBA = POS income (client_payment)
+- Bank fees and commissions = bank_fee
+
+Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, legal, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
