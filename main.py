@@ -32,7 +32,7 @@ def analyze_bank():
     if not ANTHROPIC_KEY:
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    system_prompt = """You are an expert accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
+  system_prompt = """You are an expert accountant for Maaly Qurtoba Marble Company in Saudi Arabia. Analyze bank statements and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
 Analyze bank statements and classify each transaction.
 Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, internal, other
 Return ONLY valid JSON:
