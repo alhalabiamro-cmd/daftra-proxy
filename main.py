@@ -13,6 +13,74 @@ def cors(r):
     r.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, APIKEY'
     return r
 
+def get_open_invoices():
+    try:
+        all_invoices = []
+        page = 1
+        while True:
+            resp = requests.get(
+                f"{DAFTRA_BASE}/invoices",
+                headers={'APIKEY': APIKEY},
+                params={'payment_status': '0', 'limit': 50, 'page': page}
+            )
+            data = resp.json()
+            invoices = data.get('data', [])
+            if not invoices:
+                break
+            all_invoices.extend(invoices)
+            if len(invoices) < 50:
+                break
+            page += 1
+        return all_invoices
+    except Exception as e:
+        return []
+
+def match_payment_to_invoices(amount, open_invoices, tolerance=0.05):
+    matches = []
+    for inv in open_invoices:
+        try:
+            inv_data = inv.get('Invoice', {})
+            unpaid = float(inv_data.get('summary_unpaid', 0))
+            total = float(inv_data.get('summary_total', 0))
+            inv_amount = unpaid if unpaid > 0 else total
+            if inv_amount <= 0:
+                continue
+            diff = abs(amount - inv_amount) / inv_amount
+            if diff <= tolerance:
+                matches.append({
+                    'invoice_id': inv_data.get('id'),
+                    'invoice_no': inv_data.get('no'),
+                    'client': inv_data.get('client_business_name') or inv_data.get('Client', {}).get('first_name', ''),
+                    'amount': inv_amount,
+                    'confidence': 'exact' if diff < 0.01 else 'close'
+                })
+        except:
+            continue
+    
+    # Try combining invoices for partial payments
+    if not matches and len(open_invoices) > 1:
+        for i in range(len(open_invoices)):
+            for j in range(i+1, len(open_invoices)):
+                try:
+                    inv1 = open_invoices[i].get('Invoice', {})
+                    inv2 = open_invoices[j].get('Invoice', {})
+                    unpaid1 = float(inv1.get('summary_unpaid', 0)) or float(inv1.get('summary_total', 0))
+                    unpaid2 = float(inv2.get('summary_unpaid', 0)) or float(inv2.get('summary_total', 0))
+                    combined = unpaid1 + unpaid2
+                    if combined > 0:
+                        diff = abs(amount - combined) / combined
+                        if diff <= tolerance:
+                            matches.append({
+                                'invoice_id': f"{inv1.get('id')},{inv2.get('id')}",
+                                'invoice_no': f"{inv1.get('no')} + {inv2.get('no')}",
+                                'client': inv1.get('client_business_name', ''),
+                                'amount': combined,
+                                'confidence': 'combined'
+                            })
+                except:
+                    continue
+    return matches
+
 @app.route('/bank-sync')
 def bank_sync():
     r = make_response(send_file('app.html'))
@@ -29,6 +97,10 @@ def analyze_bank():
         return cors(make_response(jsonify({'error': 'No text provided'}), 400))
     if not ANTHROPIC_KEY:
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
+    
+    # Get open invoices from Daftra
+    open_invoices = get_open_invoices()
+    
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
     prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
 
@@ -55,6 +127,7 @@ Known local suppliers - always classify as local_supplier:
 - مؤسسة جنى مارين للتجارة = marble supplier
 
 Known clients - always classify as client_payment when money comes IN:
+- مؤسسة ريميندر = client
 - مؤسسة مهجة التجارية = client
 - MISHARY ADEL ALZAMIL = client
 - SHARAF AMER ALTALHI = client
@@ -81,6 +154,7 @@ Other known classifications:
 - Bank fees and commissions = bank_fee
 
 Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, legal, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
+    
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
@@ -90,9 +164,31 @@ Analyze this bank statement and classify each transaction. Categories: client_pa
         raw = msg.content[0].text
         m = re.search(r'\{[\s\S]*\}', raw)
         result = json.loads(m.group() if m else raw)
+        
+        # Match incoming payments to open invoices
+        transactions = result.get('transactions', [])
+        for tx in transactions:
+            if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
+                amount = float(tx.get('amount', 0))
+                matches = match_payment_to_invoices(amount, open_invoices)
+                if matches:
+                    tx['invoice_matches'] = matches
+                    tx['daftra_action'] = 'match_invoice'
+                else:
+                    tx['invoice_matches'] = []
+                    tx['daftra_action'] = 'waiting_list'
+        
+        result['transactions'] = transactions
         return cors(make_response(jsonify(result), 200))
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
+
+@app.route('/open-invoices', methods=['GET', 'OPTIONS'])
+def open_invoices_endpoint():
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    invoices = get_open_invoices()
+    return cors(make_response(jsonify({'invoices': invoices, 'count': len(invoices)}), 200))
 
 @app.route('/<path:endpoint>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 def proxy(endpoint):
