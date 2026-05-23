@@ -7,6 +7,14 @@ DAFTRA_BASE = 'https://maealequrtoba.daftra.com/api2'
 APIKEY = os.environ.get('APIKEY', 'c4c035341dbe1da1531b227d89f6e2f481252766')
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
+# Client name aliases: bank statement name -> daftra name keywords
+CLIENT_ALIASES = {
+    'مهجة': 'ريميندر',
+    'reminder': 'ريميندر',
+    'الخدمات التجارية المتكاملة': 'الخدمات التجارية المتكاملة',
+    'خدمات متكاملة': 'الخدمات التجارية المتكاملة',
+}
+
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
     r.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
@@ -14,10 +22,9 @@ def cors(r):
     return r
 
 def get_open_invoices():
-    """Fetch both unpaid (0) and partially paid (2) invoices"""
     try:
         all_invoices = []
-        for status in ['0', '2']:  # 0=unpaid, 2=partially paid
+        for status in ['0', '2']:
             page = 1
             while True:
                 resp = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY}, params={'payment_status': status, 'limit': 50, 'page': page})
@@ -29,7 +36,6 @@ def get_open_invoices():
                 if len(invoices) < 50:
                     break
                 page += 1
-        # Deduplicate by invoice id
         seen = set()
         unique = []
         for inv in all_invoices:
@@ -41,29 +47,78 @@ def get_open_invoices():
     except Exception as e:
         return []
 
-def match_payment(amount, open_invoices):
-    matches = []
-    for inv in open_invoices:
-        inv_data = inv.get('Invoice', {})
-        unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
-        total = float(inv_data.get('summary_total', 0) or 0)
-        inv_amount = unpaid if unpaid > 0 else total
-        if inv_amount <= 0:
-            continue
-        diff = abs(amount - inv_amount) / inv_amount
-        if diff <= 0.05:
-            matches.append({'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'), 'client': inv_data.get('client_business_name', ''), 'amount': inv_amount, 'confidence': 'exact' if diff < 0.01 else 'close'})
-    if not matches:
-        for i in range(len(open_invoices)):
-            for j in range(i+1, len(open_invoices)):
-                inv1 = open_invoices[i].get('Invoice', {})
-                inv2 = open_invoices[j].get('Invoice', {})
+def normalize_name(name):
+    """Normalize Arabic/English name for fuzzy matching"""
+    name = (name or '').lower().strip()
+    for alias, canonical in CLIENT_ALIASES.items():
+        if alias in name:
+            return canonical.lower()
+    return name
+
+def client_name_matches(party, inv_client):
+    """Check if bank party name matches invoice client name"""
+    if not party or not inv_client:
+        return False
+    p = normalize_name(party)
+    c = normalize_name(inv_client)
+    # Check if any significant word (4+ chars) from party appears in client or vice versa
+    p_words = [w for w in p.split() if len(w) >= 4]
+    c_words = [w for w in c.split() if len(w) >= 4]
+    for pw in p_words:
+        if pw in c:
+            return True
+    for cw in c_words:
+        if cw in p:
+            return True
+    return False
+
+def match_payment(amount, open_invoices, party=''):
+    """Match payment to invoice(s) — prioritize client name match, then amount"""
+    
+    # Filter invoices by client name if party is known
+    client_invoices = [inv for inv in open_invoices if client_name_matches(party, inv.get('Invoice', {}).get('client_business_name', ''))]
+    search_pools = [client_invoices, open_invoices] if client_invoices else [open_invoices]
+
+    for pool in search_pools:
+        # 1. Single invoice exact/close match
+        matches = []
+        for inv in pool:
+            inv_data = inv.get('Invoice', {})
+            unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
+            total = float(inv_data.get('summary_total', 0) or 0)
+            inv_amount = unpaid if unpaid > 0 else total
+            if inv_amount <= 0:
+                continue
+            diff = abs(amount - inv_amount) / inv_amount
+            if diff <= 0.05:
+                matches.append({
+                    'invoice_id': inv_data.get('id'),
+                    'invoice_no': inv_data.get('no'),
+                    'client': inv_data.get('client_business_name', ''),
+                    'amount': inv_amount,
+                    'confidence': 'exact' if diff < 0.01 else 'close'
+                })
+        if matches:
+            return matches
+
+        # 2. Combined two invoices
+        for i in range(len(pool)):
+            for j in range(i+1, len(pool)):
+                inv1 = pool[i].get('Invoice', {})
+                inv2 = pool[j].get('Invoice', {})
                 a1 = float(inv1.get('summary_unpaid', 0) or inv1.get('summary_total', 0) or 0)
                 a2 = float(inv2.get('summary_unpaid', 0) or inv2.get('summary_total', 0) or 0)
                 combined = a1 + a2
                 if combined > 0 and abs(amount - combined) / combined <= 0.05:
-                    matches.append({'invoice_id': f"{inv1.get('id')},{inv2.get('id')}", 'invoice_no': f"{inv1.get('no')} + {inv2.get('no')}", 'client': inv1.get('client_business_name', ''), 'amount': combined, 'confidence': 'combined'})
-    return matches
+                    return [{
+                        'invoice_id': f"{inv1.get('id')},{inv2.get('id')}",
+                        'invoice_no': f"{inv1.get('no')} + {inv2.get('no')}",
+                        'client': inv1.get('client_business_name', ''),
+                        'amount': combined,
+                        'confidence': 'combined'
+                    }]
+
+    return []
 
 @app.route('/bank-sync')
 def bank_sync():
@@ -163,7 +218,8 @@ def analyze_bank():
         transactions = result.get('transactions', [])
         for tx in transactions:
             if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
-                matches = match_payment(float(tx.get('amount', 0)), open_invoices)
+                party = tx.get('party', '') or tx.get('description', '')
+                matches = match_payment(float(tx.get('amount', 0)), open_invoices, party)
                 tx['invoice_matches'] = matches
                 tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
         result['transactions'] = transactions
