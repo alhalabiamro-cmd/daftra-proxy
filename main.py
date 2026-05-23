@@ -117,7 +117,7 @@ def record_payment():
         pay_resp = requests.post(f"{DAFTRA_BASE}/invoice_payments", headers=headers, json=payload, timeout=30)
         pay_data = pay_resp.json()
 
-        if pay_resp.status_code in [200, 201]:
+        if pay_resp.status_code in [200, 201] or pay_data.get("result") == "successful" or (isinstance(pay_data.get("error"), dict) and pay_data["error"].get("result") == "successful"):
             return cors(make_response(jsonify({'success': True, 'data': pay_data}), 200))
         else:
             # Fallback: try client_payments with client_id
@@ -133,7 +133,7 @@ def record_payment():
                     }
                 }
                 cp_resp = requests.post(f"{DAFTRA_BASE}/client_payments", headers=headers, json=cp_payload, timeout=30)
-                if cp_resp.status_code in [200, 201]:
+                if cp_resp.status_code in [200, 201] or cp_resp.json().get("result") == "successful":
                     return cors(make_response(jsonify({'success': True, 'data': cp_resp.json()}), 200))
                 return cors(make_response(jsonify({'error': cp_resp.json(), 'invoice_resp': pay_data}), 400))
             return cors(make_response(jsonify({'error': pay_data}), pay_resp.status_code))
