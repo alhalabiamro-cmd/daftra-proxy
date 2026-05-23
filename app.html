@@ -689,8 +689,8 @@ async function postToDaftra(){
       if(txn.daftra_action==='match_invoice'&&txn._match){
         const matches=Array.isArray(txn._match)?txn._match:[txn._match];
         for(const m of matches){
-          const r=await fetch(`${PROXY}/client_payments`,{method:'POST',headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({ClientPayment:{invoice_id:m.id,amount:txn.amount,payment_method:'bank_transfer',date:txn.date,notes:txn.description}})});
+          const r=await fetch(`${PROXY}/record-payment`,{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({invoice_id:m.id,amount:txn.amount,payment_method:'bank_transfer',date:txn.date,notes:txn.description})});
           if(r.ok) success++; else failed++;
         }
       }else if(txn.daftra_action==='record_expense'){
