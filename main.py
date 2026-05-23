@@ -15,9 +15,57 @@ CLIENT_ALIASES = {
     'خدمات متكاملة': 'الخدمات التجارية المتكاملة',
 }
 
-# Known bank account numbers -> client name in daftra
+# Known bank account numbers -> classification
 ACCOUNT_TO_CLIENT = {
-    '12900608016890598': 'ريميندر',
+    # Clients (incoming payments)
+    '129000010006086890598': 'ريميندر',   # مؤسسة مهجة التجارية
+    '12900608016890598': 'ريميندر',        # same client (shorter format seen in PDF)
+    
+    # Employees - salary
+    '640000010006087461738': 'SALAMUDDIN', # salary
+    '077050010006087399166': 'SIKANDAR',   # salary
+    '077050010006087400188': 'TAUFEEK',    # salary
+    '697000010006086135855': 'يزن',        # salary
+    '192000010006080456273': 'مالك',       # salary
+    
+    # Transportation
+    '331000010006086567547': 'عبدالحسيب',  # transportation - internal delivery
+    
+    # Known suppliers
+    '377000010006080000888': 'شركة السنا للرخام والسيراميك',  # local_supplier
+    '538000010006080000223': 'شركة الفرات للرخام',            # local_supplier
+    '602000010006080654780': 'شركة اسوار الخليج',             # local_supplier
+    '487000010006085245725': 'شركة هواهوي ستون',              # local_supplier (واهوي)
+    
+    # Rent
+    '599000010006080888888': 'سليمان المهوس',   # rent Buraydah
+    
+    # Government/PRO services
+    '282000010006086606237': 'مؤسسة قوس قزح',  # government PRO services
+    
+    # Personal (owner)
+    '077050010006084823853': 'عمرو الحلبي',     # personal - owner
+    '539000010006085772890': 'اميرة',           # personal - owner mother
+}
+
+# Account number -> category mapping for automatic classification
+ACCOUNT_CATEGORY = {
+    '129000010006086890598': 'client_payment',
+    '12900608016890598': 'client_payment',
+    '640000010006087461738': 'salary',
+    '077050010006087399166': 'salary',
+    '077050010006087400188': 'salary',
+    '697000010006086135855': 'salary',
+    '192000010006080456273': 'salary',
+    '331000010006086567547': 'transportation',
+    '377000010006080000888': 'local_supplier',
+    '538000010006080000223': 'local_supplier',
+    '602000010006080654780': 'local_supplier',
+    '487000010006085245725': 'local_supplier',
+    '599000010006080888888': 'rent',
+    '282000010006086606237': 'government',
+    '077050010006084823853': 'personal',
+    '539000010006085772890': 'personal',
 }
 
 # Daftra expense category IDs for salaries/transportation
@@ -69,8 +117,16 @@ def normalize_name(name):
 
 def extract_account_from_text(text):
     """Extract account number from bank transaction text"""
-    m = re.search(r'(?:FRACCT|TOACCT|FROMACCT)[/\\](\d{10,})', text or '')
-    return m.group(1) if m else None
+    text = text or ''
+    # Try FRACCT/TOACCT format (PDF)
+    m = re.search(r'(?:FRACCT|TOACCT|FROMACCT)[/\\](\d{10,})', text)
+    if m:
+        return m.group(1)
+    # Try CA: format (Excel)
+    m = re.search(r'CA:\s*(\d{10,})', text)
+    if m:
+        return m.group(1)
+    return None
 
 def client_name_matches(party, inv_client):
     if not party or not inv_client:
