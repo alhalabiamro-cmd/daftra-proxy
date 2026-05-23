@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>مزامنة البنك — دفترة v3</title>
+<title>مزامنة البنك — دفترة v4</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;--text:#f0f0f0;--muted:#777;--accent:#c9a96e;--accent2:#e8c88a;--green:#4caf50;--red:#ef5350;--blue:#42a5f5;--orange:#ffa726}
+:root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;--text:#f0f0f0;--muted:#777;--accent:#c9a96e;--accent2:#e8c88a;--green:#4caf50;--red:#ef5350;--blue:#42a5f5;--orange:#ffa726;--purple:#ce93d8}
 body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-serif;min-height:100vh;padding:24px}
-.app{max-width:960px;margin:0 auto}
+.app{max-width:1000px;margin:0 auto}
 .header{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--border)}
 .logo{display:flex;align-items:center;gap:12px}
 .logo-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px}
@@ -31,7 +31,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .btn-upload{display:inline-block;margin-top:16px;padding:10px 24px;background:var(--accent);color:#000;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none}
 #file-input{display:none}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
-.card-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px}
+.card-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .progress-bar-bg{background:var(--border);border-radius:20px;height:6px;margin:12px 0}
 .progress-bar{background:linear-gradient(90deg,var(--accent),var(--accent2));height:6px;border-radius:20px;transition:width .4s;width:0%}
 .progress-text{font-size:13px;color:var(--muted);text-align:center}
@@ -42,7 +42,16 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .metric{background:var(--surface2);border-radius:10px;padding:14px;text-align:center}
 .metric .lbl{font-size:11px;color:var(--muted);margin-bottom:6px}
 .metric .val{font-size:20px;font-weight:700}
-.metric .val.green{color:var(--green)}.metric .val.red{color:var(--red)}.metric .val.gold{color:var(--accent)}
+.metric .val.green{color:var(--green)}.metric .val.red{color:var(--red)}.metric .val.gold{color:var(--accent)}.metric .val.orange{color:var(--orange)}
+/* Tabs */
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:.2s}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-badge{display:inline-block;background:var(--border);border-radius:10px;padding:1px 7px;font-size:10px;margin-right:4px}
+.tab.active .tab-badge{background:var(--accent);color:#000}
+.tab-badge.orange{background:#2a1800;color:var(--orange)}
+/* Transaction table */
 .txn-filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
 .filter-btn{padding:5px 12px;border-radius:20px;font-size:12px;cursor:pointer;border:1px solid var(--border);background:transparent;color:var(--muted);transition:.2s}
 .filter-btn:hover,.filter-btn.on{border-color:var(--accent);color:var(--accent);background:#1a1500}
@@ -58,6 +67,36 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .cat-other{background:#1a1a1a;color:#777}.cat-fee{background:#1a1a1a;color:#555}
 .chk{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
 .amount-in{color:var(--green);font-weight:600}.amount-out{color:var(--red)}
+/* Invoice match styles */
+.match-linked{background:#0a1f0a;border:1px solid #1a4a1a;border-radius:6px;padding:5px 8px;margin-top:4px;font-size:11px}
+.match-partial{background:#1a1500;border:1px solid #3a2a00;border-radius:6px;padding:5px 8px;margin-top:4px;font-size:11px}
+.match-waiting{background:#1a0f00;border:1px solid #3a2000;border-radius:6px;padding:5px 8px;margin-top:4px;font-size:11px}
+.progress-ring{display:inline-flex;align-items:center;gap:5px;font-size:11px}
+.ring-bar{height:4px;border-radius:2px;background:var(--border);width:60px;display:inline-block}
+.ring-fill{height:4px;border-radius:2px;background:var(--accent)}
+/* Waiting list */
+.waiting-card{background:var(--surface);border:1px solid #3a2000;border-radius:12px;padding:16px;margin-bottom:12px}
+.waiting-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.waiting-amount{font-size:22px;font-weight:700;color:var(--orange)}
+.waiting-desc{font-size:13px;color:var(--text);margin-bottom:2px}
+.waiting-date{font-size:11px;color:var(--muted)}
+.inv-picker{margin-top:10px}
+.inv-picker-label{font-size:11px;color:var(--muted);margin-bottom:6px}
+.inv-list{display:flex;flex-direction:column;gap:4px;max-height:180px;overflow-y:auto}
+.inv-option{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:6px;border:1px solid var(--border);cursor:pointer;transition:.2s}
+.inv-option:hover{border-color:var(--accent);background:#1a1500}
+.inv-option.selected{border-color:var(--green);background:#0f1a0f}
+.inv-option-left{font-size:12px}
+.inv-option-no{color:var(--accent);font-weight:600;font-size:11px}
+.inv-option-client{color:var(--text)}
+.inv-option-right{text-align:left}
+.inv-option-amt{font-size:13px;font-weight:600;color:var(--orange)}
+.inv-option-paid{font-size:10px;color:var(--muted)}
+.btn-link{padding:7px 16px;background:var(--green);color:#000;border:none;border-radius:6px;font-weight:700;font-size:12px;cursor:pointer;margin-top:8px}
+.btn-link:disabled{opacity:.4;cursor:not-allowed}
+.btn-skip-waiting{padding:7px 14px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;margin-top:8px;margin-right:6px}
+.empty-state{text-align:center;padding:40px;color:var(--muted);font-size:14px}
+/* Action bar */
 .action-bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);padding:16px 0;margin-top:20px;display:none}
 .action-bar-inner{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .sel-info{font-size:13px;color:var(--muted)}
@@ -65,6 +104,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .btn-post{padding:12px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer}
 .btn-post:disabled{opacity:.4;cursor:not-allowed}
 .btn-outline{padding:10px 18px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer}
+/* Modal */
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center}
 .modal-bg.show{display:flex}
 .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;max-width:480px;width:90%;text-align:center}
@@ -88,6 +128,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
     <div class="step" id="step2"><div class="step-num">2</div>تحليل الذكاء الاصطناعي</div>
     <div class="step" id="step3"><div class="step-num">3</div>مراجعة وتسجيل</div>
   </div>
+
+  <!-- SCREEN 1: Upload -->
   <div id="screen-upload">
     <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
       <div class="upload-icon">📄</div>
@@ -97,6 +139,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
       <input type="file" id="file-input" accept=".pdf" onchange="handleFile(this.files[0])">
     </div>
   </div>
+
+  <!-- SCREEN 2: Analysis -->
   <div id="screen-analysis" style="display:none">
     <div class="card">
       <div class="card-title">🤖 الذكاء الاصطناعي يحلل الكشف</div>
@@ -105,22 +149,54 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
       <div class="log" id="log"></div>
     </div>
   </div>
+
+  <!-- SCREEN 3: Review -->
   <div id="screen-review" style="display:none">
     <div class="metrics" id="metrics"></div>
     <div class="card">
-      <div class="card-title">📋 المعاملات المكتشفة <span style="margin-right:auto;font-size:12px;font-weight:400" id="txn-count"></span></div>
-      <div class="txn-filters" id="filters"></div>
-      <div style="overflow-x:auto">
-        <table class="txn-table">
-          <thead><tr>
-            <th><input type="checkbox" class="chk" id="chk-all" onchange="toggleAll(this.checked)"></th>
-            <th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>المبلغ</th><th>الإجراء</th>
-          </tr></thead>
-          <tbody id="txn-body"></tbody>
-        </table>
+      <div class="card-title">📋 نتائج التحليل</div>
+      <!-- Tabs -->
+      <div class="tabs">
+        <div class="tab active" id="tab-all" onclick="switchTab('all')">كل المعاملات <span class="tab-badge" id="badge-all">0</span></div>
+        <div class="tab" id="tab-clients" onclick="switchTab('clients')">دفعات عملاء <span class="tab-badge" id="badge-clients">0</span></div>
+        <div class="tab" id="tab-waiting" onclick="switchTab('waiting')">⏳ قائمة الانتظار <span class="tab-badge orange" id="badge-waiting">0</span></div>
+      </div>
+
+      <!-- Tab: All transactions -->
+      <div id="panel-all">
+        <div class="txn-filters" id="filters"></div>
+        <div style="overflow-x:auto">
+          <table class="txn-table">
+            <thead><tr>
+              <th><input type="checkbox" class="chk" id="chk-all" onchange="toggleAll(this.checked)"></th>
+              <th>التاريخ</th><th>الوصف</th><th>التصنيف</th><th>المبلغ</th><th>الفاتورة</th>
+            </tr></thead>
+            <tbody id="txn-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Client payments -->
+      <div id="panel-clients" style="display:none">
+        <div style="overflow-x:auto">
+          <table class="txn-table">
+            <thead><tr>
+              <th><input type="checkbox" class="chk" id="chk-clients" onchange="toggleClients(this.checked)"></th>
+              <th>التاريخ</th><th>الوصف / الطرف</th><th>المبلغ</th><th>الفاتورة المرتبطة</th>
+            </tr></thead>
+            <tbody id="client-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Waiting list -->
+      <div id="panel-waiting" style="display:none">
+        <div id="waiting-list"></div>
       </div>
     </div>
   </div>
+
+  <!-- Action bar -->
   <div class="action-bar" id="action-bar">
     <div class="action-bar-inner">
       <div class="sel-info">تم اختيار <strong id="sel-count">0</strong> معاملة</div>
@@ -131,6 +207,8 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
     </div>
   </div>
 </div>
+
+<!-- Success Modal -->
 <div class="modal-bg" id="modal">
   <div class="modal">
     <div style="font-size:48px">🎉</div>
@@ -140,21 +218,25 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
     <button class="modal-btn" onclick="resetApp()">ارفع كشفاً جديداً</button>
   </div>
 </div>
+
 <script>
 pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const PROXY='https://web-production-996d9.up.railway.app';
-let allTxns=[],filtered=[],currentFilter='all';
+
+let allTxns=[], filtered=[], currentFilter='all', allInvoices=[];
+let waitingList=[]; // payments with no match
+let currentTab='all';
+// invoice balance tracker: invoiceId -> { paid, total, txns[] }
+let invoiceBalances={};
 
 function resetApp(){
-  allTxns=[];filtered=[];
+  allTxns=[];filtered=[];allInvoices=[];waitingList=[];invoiceBalances={};currentTab='all';
   document.getElementById('screen-upload').style.display='block';
   document.getElementById('screen-analysis').style.display='none';
   document.getElementById('screen-review').style.display='none';
   document.getElementById('action-bar').style.display='none';
   document.getElementById('modal').classList.remove('show');
-  document.getElementById('step1').className='step active';
-  document.getElementById('step2').className='step';
-  document.getElementById('step3').className='step';
+  ['step1','step2','step3'].forEach((id,i)=>document.getElementById(id).className='step'+(i===0?' active':''));
   document.getElementById('file-input').value='';
   document.getElementById('log').innerHTML='';
 }
@@ -222,8 +304,7 @@ async function analyzeWithServer(bankText){
   const textChunk=bankText.length>18000?bankText.substring(0,18000):bankText;
   try{
     const response=await fetch(`${PROXY}/analyze-bank`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:textChunk})
     });
     setProgress(70,'جاري معالجة النتائج...');
@@ -231,33 +312,131 @@ async function analyzeWithServer(bankText){
     if(data.error) throw new Error(data.error);
     const result=typeof data==='object'?data:JSON.parse(data);
     log('تم اكتشاف '+(result.transactions?.length||0)+' معاملة','ok');
-    setProgress(90,'جاري تحميل بيانات دفترة...');
-    const invoices=await loadDaftraInvoices();
-    log('تم تحميل '+invoices.length+' فاتورة من دفترة','ok');
-    setProgress(100,'اكتمل التحليل ✓');
+    setProgress(85,'جاري تحميل فواتير دفترة...');
+    allInvoices=await loadDaftraInvoices();
+    log('تم تحميل '+allInvoices.length+' فاتورة مفتوحة من دفترة','ok');
+    setProgress(95,'جاري مطابقة الفواتير...');
     allTxns=result.transactions||[];
-    renderReview(result,invoices);
+    matchAllPayments();
+    setProgress(100,'اكتمل التحليل ✓');
+    renderReview(result);
   }catch(e){
-    log('خطأ في التحليل: '+e.message,'warn');
-    log('جاري التحليل اليدوي...','info');
+    log('خطأ: '+e.message,'warn');
     allTxns=fallbackParse(bankText);
-    renderReview({bank:'الراجحي',transactions:allTxns},[]);
+    renderReview({bank:'الراجحي',transactions:allTxns});
   }
 }
+
 async function loadDaftraInvoices(){
   try{
-    const r=await fetch(`${PROXY}/invoices?page=1`);
+    const r=await fetch(`${PROXY}/open-invoices`);
     const d=await r.json();
-    const total=d.pagination?.page_count||1;
-    let all=(d.data||[]).map(i=>i.Invoice||i);
-    for(let p=2;p<=Math.min(total,5);p++){
-      const r2=await fetch(`${PROXY}/invoices?page=${p}`);
-      const d2=await r2.json();
-      all=all.concat((d2.data||[]).map(i=>i.Invoice||i));
-    }
-    return all.filter(i=>Number(i.summary_unpaid||0)>0);
+    return (d.invoices||[]).map(i=>{
+      const inv=i.Invoice||i;
+      return {
+        id:inv.id, no:inv.no||inv.invoice_number,
+        client:inv.client_business_name||inv.client_name||'',
+        total:parseFloat(inv.summary_total||0),
+        unpaid:parseFloat(inv.summary_unpaid||0),
+        date:inv.date||''
+      };
+    }).filter(i=>i.unpaid>0);
   }catch(e){return[];}
 }
+
+// Core matching engine
+function matchAllPayments(){
+  invoiceBalances={};
+  // init balances from daftra
+  allInvoices.forEach(inv=>{
+    invoiceBalances[inv.id]={
+      invoiceNo:inv.no, client:inv.client,
+      total:inv.total, unpaid:inv.unpaid,
+      paidSoFar:0, linkedTxns:[]
+    };
+  });
+
+  waitingList=[];
+  const clientPayments=allTxns.filter(t=>t.direction==='in'&&t.category==='client_payment');
+
+  clientPayments.forEach(txn=>{
+    txn._match=null;
+    txn._matchType=null;
+    const amt=parseFloat(txn.amount||0);
+    if(amt<=0) return;
+
+    // 1. Try exact match on unpaid amount
+    let bestMatch=null, bestDiff=Infinity;
+    for(const inv of allInvoices){
+      const bal=invoiceBalances[inv.id];
+      const remaining=bal.unpaid - bal.paidSoFar;
+      if(remaining<=0) continue;
+      const diff=Math.abs(amt - remaining);
+      const pct=diff/remaining;
+      if(pct<=0.05 && diff<bestDiff){bestDiff=diff;bestMatch=inv;}
+    }
+
+    if(bestMatch){
+      const bal=invoiceBalances[bestMatch.id];
+      bal.paidSoFar+=amt;
+      bal.linkedTxns.push(txn);
+      txn._match=bestMatch;
+      txn._matchType=bestDiff<0.01?'exact':'close';
+      txn.daftra_action='match_invoice';
+      return;
+    }
+
+    // 2. Try partial payment (amount < remaining on invoice)
+    let partialMatch=null;
+    for(const inv of allInvoices){
+      const bal=invoiceBalances[inv.id];
+      const remaining=bal.unpaid - bal.paidSoFar;
+      if(remaining<=0) continue;
+      if(amt < remaining && amt/remaining >= 0.1){
+        // reasonable partial payment
+        if(!partialMatch || remaining < invoiceBalances[partialMatch.id].unpaid - invoiceBalances[partialMatch.id].paidSoFar){
+          partialMatch=inv;
+        }
+      }
+    }
+
+    if(partialMatch){
+      const bal=invoiceBalances[partialMatch.id];
+      bal.paidSoFar+=amt;
+      bal.linkedTxns.push(txn);
+      txn._match=partialMatch;
+      txn._matchType='partial';
+      txn.daftra_action='match_invoice';
+      return;
+    }
+
+    // 3. Try combined invoices (two invoices summing to amount)
+    outer:for(let i=0;i<allInvoices.length;i++){
+      for(let j=i+1;j<allInvoices.length;j++){
+        const b1=invoiceBalances[allInvoices[i].id];
+        const b2=invoiceBalances[allInvoices[j].id];
+        const r1=b1.unpaid-b1.paidSoFar, r2=b2.unpaid-b2.paidSoFar;
+        if(r1<=0||r2<=0) continue;
+        const combined=r1+r2;
+        if(Math.abs(amt-combined)/combined<=0.05){
+          b1.paidSoFar+=r1; b1.linkedTxns.push(txn);
+          b2.paidSoFar+=r2; b2.linkedTxns.push(txn);
+          txn._match=[allInvoices[i],allInvoices[j]];
+          txn._matchType='combined';
+          txn.daftra_action='match_invoice';
+          break outer;
+        }
+      }
+    }
+
+    if(!txn._match){
+      txn.daftra_action='waiting_list';
+      txn._matchType='none';
+      waitingList.push(txn);
+    }
+  });
+}
+
 function fallbackParse(text){
   const lines=text.split('\n'),txns=[];
   const dr=/(\d{4}\/\d{2}\/\d{2}|\d{2}\/\d{2}\/\d{4})/;
@@ -265,16 +444,13 @@ function fallbackParse(text){
   lines.forEach(line=>{
     if(dr.test(line)&&ar.test(line)){
       const amounts=line.match(ar)||[];
-      if(amounts.length>0){
-        txns.push({date:(line.match(dr)||[''])[0],description:line.substring(0,60).trim(),
-          amount:parseFloat(amounts[0].replace(/,/g,'')),
-          direction:line.includes('دائن')?'in':'out',category:'other',daftra_action:'skip'});
-      }
+      if(amounts.length>0) txns.push({date:(line.match(dr)||[''])[0],description:line.substring(0,60).trim(),amount:parseFloat(amounts[0].replace(/,/g,'')),direction:line.includes('دائن')?'in':'out',category:'other',daftra_action:'skip'});
     }
   });
   return txns.slice(0,100);
 }
-function renderReview(result,invoices){
+
+function renderReview(result){
   document.getElementById('screen-analysis').style.display='none';
   document.getElementById('screen-review').style.display='block';
   document.getElementById('step2').className='step done';
@@ -283,85 +459,240 @@ function renderReview(result,invoices){
   const txns=result.transactions||[];
   const incoming=txns.filter(t=>t.direction==='in').reduce((s,t)=>s+Number(t.amount||0),0);
   const outgoing=txns.filter(t=>t.direction==='out').reduce((s,t)=>s+Number(t.amount||0),0);
-  const toRecord=txns.filter(t=>t.daftra_action!=='skip').length;
+  const toRecord=txns.filter(t=>t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list').length;
   const clients=txns.filter(t=>t.category==='client_payment').length;
+  const waiting=waitingList.length;
   document.getElementById('metrics').innerHTML=`
     <div class="metric"><div class="lbl">إجمالي الإيداعات</div><div class="val green">${fmt(incoming)}</div></div>
     <div class="metric"><div class="lbl">إجمالي السحوبات</div><div class="val red">${fmt(outgoing)}</div></div>
     <div class="metric"><div class="lbl">للتسجيل في دفترة</div><div class="val gold">${toRecord}</div></div>
     <div class="metric"><div class="lbl">دفعات عملاء</div><div class="val green">${clients}</div></div>
+    <div class="metric"><div class="lbl">قائمة الانتظار</div><div class="val orange">${waiting}</div></div>
     <div class="metric"><div class="lbl">المعاملات الكلية</div><div class="val">${txns.length}</div></div>`;
-  const cats=[...new Set(txns.map(t=>t.category))];
-  const catNames={client_payment:'دفعات عملاء',china_supplier:'الصين',local_supplier:'موردون',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',internal:'داخلي',other:'أخرى'};
-  let fh=`<button class="filter-btn on" onclick="filterTxns('all',this)">الكل (${txns.length})</button>`;
-  fh+=`<button class="filter-btn" onclick="filterTxns('to_record',this)">للتسجيل (${toRecord})</button>`;
-  cats.forEach(c=>{const cnt=txns.filter(t=>t.category===c).length;fh+=`<button class="filter-btn" onclick="filterTxns('${c}',this)">${catNames[c]||c} (${cnt})</button>`;});
-  document.getElementById('filters').innerHTML=fh;
+  document.getElementById('badge-all').textContent=txns.length;
+  document.getElementById('badge-clients').textContent=clients;
+  document.getElementById('badge-waiting').textContent=waiting;
+  if(waiting>0){
+    document.getElementById('badge-waiting').classList.add('orange');
+    document.getElementById('tab-waiting').style.color='var(--orange)';
+  }
   filtered=[...txns];
-  renderTable(filtered,invoices);
+  renderAllTab(filtered);
+  renderClientsTab();
+  renderWaitingTab();
   updateSelCount();
 }
+
+function switchTab(tab){
+  currentTab=tab;
+  ['all','clients','waiting'].forEach(t=>{
+    document.getElementById('tab-'+t).className='tab'+(t===tab?' active':'');
+    document.getElementById('panel-'+t).style.display=t===tab?'block':'none';
+  });
+  updateSelCount();
+}
+
+// ---- ALL TAB ----
+function renderAllTab(txns){
+  const cats=[...new Set(allTxns.map(t=>t.category))];
+  const catNames={client_payment:'دفعات عملاء',china_supplier:'الصين',local_supplier:'موردون',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',transportation:'نقل',loan:'قرض',other:'أخرى'};
+  const toRecord=allTxns.filter(t=>t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list').length;
+  let fh=`<button class="filter-btn on" onclick="filterTxns('all',this)">الكل (${allTxns.length})</button>`;
+  fh+=`<button class="filter-btn" onclick="filterTxns('to_record',this)">للتسجيل (${toRecord})</button>`;
+  cats.forEach(c=>{const cnt=allTxns.filter(t=>t.category===c).length;fh+=`<button class="filter-btn" onclick="filterTxns('${c}',this)">${catNames[c]||c} (${cnt})</button>`;});
+  document.getElementById('filters').innerHTML=fh;
+  renderTable(txns);
+}
+
 function filterTxns(type,btn){
   document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('on'));
-  btn.classList.add('on');currentFilter=type;
+  btn.classList.add('on');
   if(type==='all') filtered=[...allTxns];
-  else if(type==='to_record') filtered=allTxns.filter(t=>t.daftra_action!=='skip');
+  else if(type==='to_record') filtered=allTxns.filter(t=>t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list');
   else filtered=allTxns.filter(t=>t.category===type);
-  renderTable(filtered,window._invoices||[]);
+  renderTable(filtered);
 }
-function renderTable(txns,invoices){
-  window._invoices=invoices;
-  const cc={client_payment:'cat-client',china_supplier:'cat-china',local_supplier:'cat-supplier',salary:'cat-salary',rent:'cat-rent',personal:'cat-personal',government:'cat-other',bank_fee:'cat-fee',internal:'cat-fee',other:'cat-other'};
-  const cn={client_payment:'دفعة عميل',china_supplier:'صين',local_supplier:'مورد',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',internal:'داخلي',other:'أخرى'};
-  const an={record_payment:'💳 دفعة',record_expense:'💸 مصروف',skip:'—'};
-  document.getElementById('txn-count').textContent=txns.length+' معاملة';
+
+function renderTable(txns){
+  const cc={client_payment:'cat-client',china_supplier:'cat-china',local_supplier:'cat-supplier',salary:'cat-salary',rent:'cat-rent',personal:'cat-personal',government:'cat-other',bank_fee:'cat-fee',transportation:'cat-other',loan:'cat-other',other:'cat-other'};
+  const cn={client_payment:'دفعة عميل',china_supplier:'صين',local_supplier:'مورد',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',transportation:'نقل',loan:'قرض',other:'أخرى'};
   document.getElementById('txn-body').innerHTML=txns.map((t,i)=>{
     const cls=cc[t.category]||'cat-other';
     const amtCls=t.direction==='in'?'amount-in':'amount-out';
     const sign=t.direction==='in'?'+':'-';
-    const chk=t.daftra_action!=='skip'?'checked':'';
-    let mh='';
-    if(t.category==='client_payment'&&invoices.length){
-      const m=findMatch(t,invoices);
-      if(m){mh=`<div style="font-size:11px;color:var(--accent);margin-top:3px">🔗 ${m.no} — ${m.client_business_name}</div>`;t._invoice_id=m.id;}
-    }
+    const chk=t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list'?'checked':'';
+    let matchHtml='<span style="color:var(--muted);font-size:11px">—</span>';
+    if(t._match&&t._matchType==='exact') matchHtml=`<div class="match-linked">✅ ${Array.isArray(t._match)?t._match.map(m=>m.no).join(' + '):t._match.no}</div>`;
+    else if(t._match&&t._matchType==='close') matchHtml=`<div class="match-linked" style="border-color:#2a3a1a">🔗 ${t._match.no} <span style="color:var(--muted)">(قريب)</span></div>`;
+    else if(t._match&&t._matchType==='partial'){
+      const bal=invoiceBalances[t._match.id];
+      const pct=Math.min(100,Math.round(bal.paidSoFar/bal.unpaid*100));
+      matchHtml=`<div class="match-partial">⚡ ${t._match.no} <span class="progress-ring"><span class="ring-bar"><span class="ring-fill" style="width:${pct}%"></span></span>${pct}%</span></div>`;
+    }else if(t._match&&t._matchType==='combined') matchHtml=`<div class="match-linked">✅ ${t._match.map(m=>m.no).join(' + ')} (مجموع)</div>`;
+    else if(t.daftra_action==='waiting_list') matchHtml=`<div class="match-waiting">⏳ قائمة انتظار</div>`;
     return `<tr>
       <td><input type="checkbox" class="chk txn-chk" data-idx="${i}" ${chk} onchange="updateSelCount()"></td>
       <td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td>
-      <td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}${mh}</td>
+      <td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}</td>
       <td><span class="cat-badge ${cls}">${cn[t.category]||t.category}</span></td>
       <td class="${amtCls}" style="text-align:left;white-space:nowrap">${sign} ${fmt(t.amount)}</td>
-      <td style="font-size:12px;color:var(--muted)">${an[t.daftra_action]||'—'}</td>
+      <td>${matchHtml}</td>
     </tr>`;
   }).join('');
 }
-function findMatch(txn,invoices){
-  const amt=Number(txn.amount||0);
-  const party=(txn.party||'').toLowerCase();
-  const byAmt=invoices.filter(inv=>{const u=Number(inv.summary_unpaid||0);return u>0&&Math.abs(u-amt)/amt<0.05;});
-  if(byAmt.length===1) return byAmt[0];
-  const byName=invoices.filter(inv=>{const c=(inv.client_business_name||'').toLowerCase();return party&&c.includes(party.substring(0,4));});
-  if(byName.length===1) return byName[0];
-  return null;
+
+// ---- CLIENTS TAB ----
+function renderClientsTab(){
+  const clients=allTxns.filter(t=>t.direction==='in'&&t.category==='client_payment');
+  document.getElementById('client-body').innerHTML=clients.map((t,i)=>{
+    const amtCls='amount-in';
+    const chk=t.daftra_action!=='waiting_list'?'checked':'';
+    let invoiceHtml='<span style="color:var(--muted);font-size:11px">لا توجد فاتورة مطابقة</span>';
+    if(t._match){
+      const matches=Array.isArray(t._match)?t._match:[t._match];
+      invoiceHtml=matches.map(m=>{
+        const bal=invoiceBalances[m.id];
+        const remaining=bal.unpaid-bal.paidSoFar+parseFloat(t.amount||0); // before this payment
+        const pct=Math.min(100,Math.round(bal.paidSoFar/bal.unpaid*100));
+        return `<div style="font-size:12px">
+          <span style="color:var(--accent);font-weight:700">${m.no}</span>
+          <span style="color:var(--muted);margin-right:6px">${m.client}</span>
+          <span style="color:var(--orange)">${fmt(bal.unpaid)} SAR</span>
+          ${t._matchType==='partial'?`<div class="progress-ring" style="margin-top:3px"><span class="ring-bar"><span class="ring-fill" style="width:${pct}%"></span></span><span style="font-size:10px;color:var(--muted)">مدفوع ${pct}%</span></div>`:''}
+        </div>`;
+      }).join('');
+    }
+    return `<tr>
+      <td><input type="checkbox" class="chk client-chk" data-txnidx="${allTxns.indexOf(t)}" ${chk} onchange="updateSelCount()"></td>
+      <td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td>
+      <td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}</td>
+      <td class="${amtCls}" style="text-align:left;white-space:nowrap;font-size:16px;font-weight:700">+ ${fmt(t.amount)}</td>
+      <td>${invoiceHtml}</td>
+    </tr>`;
+  }).join('');
+  if(!clients.length) document.getElementById('client-body').innerHTML=`<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--muted)">لا توجد دفعات عملاء في هذا الكشف</td></tr>`;
 }
+
+// ---- WAITING TAB ----
+function renderWaitingTab(){
+  if(!waitingList.length){
+    document.getElementById('waiting-list').innerHTML=`<div class="empty-state">🎉 لا توجد مدفوعات في قائمة الانتظار — كل شيء تمت مطابقته!</div>`;
+    return;
+  }
+  document.getElementById('waiting-list').innerHTML=waitingList.map((txn,wi)=>{
+    const invOptions=allInvoices.map(inv=>{
+      const bal=invoiceBalances[inv.id];
+      const remaining=bal.unpaid-bal.paidSoFar;
+      if(remaining<=0) return '';
+      return `<div class="inv-option" onclick="selectInvOption(${wi},'${inv.id}',this)">
+        <div class="inv-option-left">
+          <div class="inv-option-no">${inv.no}</div>
+          <div class="inv-option-client">${inv.client}</div>
+        </div>
+        <div class="inv-option-right">
+          <div class="inv-option-amt">${fmt(remaining)} SAR</div>
+          <div class="inv-option-paid">متبقي من ${fmt(inv.total)}</div>
+        </div>
+      </div>`;
+    }).join('');
+    return `<div class="waiting-card" id="waiting-card-${wi}">
+      <div class="waiting-header">
+        <div>
+          <div class="waiting-desc">${txn.description||'—'}</div>
+          ${txn.party?`<div style="font-size:12px;color:var(--muted)">${txn.party}</div>`:''}
+          <div class="waiting-date">${txn.date||'—'}</div>
+        </div>
+        <div class="waiting-amount">+ ${fmt(txn.amount)} SAR</div>
+      </div>
+      <div class="inv-picker">
+        <div class="inv-picker-label">اختر الفاتورة المناسبة:</div>
+        <div class="inv-list" id="inv-list-${wi}">${invOptions||'<div style="color:var(--muted);font-size:12px;padding:8px">لا توجد فواتير مفتوحة</div>'}</div>
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+          <button class="btn-link" id="btn-link-${wi}" disabled onclick="linkWaiting(${wi})">🔗 ربط بالفاتورة</button>
+          <button class="btn-skip-waiting" onclick="skipWaiting(${wi})">تجاهل</button>
+          <span id="link-result-${wi}" style="font-size:12px;color:var(--green)"></span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+let waitingSelections={}; // wi -> invoiceId
+function selectInvOption(wi,invId,el){
+  document.querySelectorAll(`#inv-list-${wi} .inv-option`).forEach(e=>e.classList.remove('selected'));
+  el.classList.add('selected');
+  waitingSelections[wi]=invId;
+  document.getElementById('btn-link-'+wi).disabled=false;
+}
+function linkWaiting(wi){
+  const txn=waitingList[wi];
+  const invId=waitingSelections[wi];
+  const inv=allInvoices.find(i=>i.id==invId);
+  if(!inv||!txn) return;
+  const bal=invoiceBalances[invId];
+  bal.paidSoFar+=parseFloat(txn.amount||0);
+  bal.linkedTxns.push(txn);
+  txn._match=inv;
+  txn._matchType='manual';
+  txn.daftra_action='match_invoice';
+  document.getElementById('link-result-'+wi).textContent='✅ تم الربط!';
+  document.getElementById('btn-link-'+wi).disabled=true;
+  document.querySelectorAll(`#inv-list-${wi} .inv-option`).forEach(e=>e.style.pointerEvents='none');
+  // remove from waiting list visually
+  setTimeout(()=>{
+    const card=document.getElementById('waiting-card-'+wi);
+    card.style.opacity='0.4';
+    card.style.borderColor='var(--border)';
+  },800);
+  // update badge
+  const remaining=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
+  document.getElementById('badge-waiting').textContent=remaining;
+  updateSelCount();
+}
+function skipWaiting(wi){
+  const txn=waitingList[wi];
+  txn.daftra_action='skip';
+  document.getElementById('waiting-card-'+wi).style.opacity='0.3';
+  const remaining=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
+  document.getElementById('badge-waiting').textContent=remaining;
+}
+
 function toggleAll(checked){document.querySelectorAll('.txn-chk').forEach(c=>c.checked=checked);updateSelCount();}
-function selectRelevant(){document.querySelectorAll('.txn-chk').forEach((c,i)=>{const idx=parseInt(c.dataset.idx);const txn=filtered[idx];c.checked=txn&&txn.daftra_action!=='skip';});updateSelCount();}
-function updateSelCount(){const cnt=document.querySelectorAll('.txn-chk:checked').length;document.getElementById('sel-count').textContent=cnt;document.getElementById('post-btn').disabled=cnt===0;}
+function toggleClients(checked){document.querySelectorAll('.client-chk').forEach(c=>c.checked=checked);updateSelCount();}
+function selectRelevant(){
+  document.querySelectorAll('.txn-chk').forEach((c,i)=>{const txn=filtered[parseInt(c.dataset.idx)];c.checked=txn&&txn.daftra_action!=='skip'&&txn.daftra_action!=='waiting_list';});
+  updateSelCount();
+}
+function updateSelCount(){
+  const cnt=document.querySelectorAll('.txn-chk:checked, .client-chk:checked').length;
+  document.getElementById('sel-count').textContent=cnt;
+  document.getElementById('post-btn').disabled=cnt===0;
+}
 function fmt(n){return Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
 async function postToDaftra(){
   const btn=document.getElementById('post-btn');
   btn.disabled=true;btn.textContent='⏳ جاري التسجيل...';
-  const checked=document.querySelectorAll('.txn-chk:checked');
+  const allChecked=[
+    ...document.querySelectorAll('.txn-chk:checked'),
+    ...document.querySelectorAll('.client-chk:checked')
+  ];
+  // deduplicate by txn reference
+  const seenTxns=new Set();
   let success=0,failed=0;
-  for(const chk of checked){
-    const idx=parseInt(chk.dataset.idx);
-    const txn=filtered[idx];
-    if(!txn) continue;
+  for(const chk of allChecked){
+    const idx=parseInt(chk.dataset.idx||chk.dataset.txnidx);
+    const txn=chk.dataset.idx!==undefined?filtered[idx]:allTxns[idx];
+    if(!txn||seenTxns.has(txn)) continue;
+    seenTxns.add(txn);
     try{
-      if(txn.daftra_action==='record_payment'&&txn._invoice_id){
-        const r=await fetch(`${PROXY}/client_payments`,{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({ClientPayment:{invoice_id:txn._invoice_id,amount:txn.amount,payment_method:'bank_transfer',date:txn.date,notes:txn.description}})});
-        if(r.ok) success++; else failed++;
+      if(txn.daftra_action==='match_invoice'&&txn._match){
+        const matches=Array.isArray(txn._match)?txn._match:[txn._match];
+        for(const m of matches){
+          const r=await fetch(`${PROXY}/client_payments`,{method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ClientPayment:{invoice_id:m.id,amount:txn.amount,payment_method:'bank_transfer',date:txn.date,notes:txn.description}})});
+          if(r.ok) success++; else failed++;
+        }
       }else if(txn.daftra_action==='record_expense'){
         const r=await fetch(`${PROXY}/expenses`,{method:'POST',headers:{'Content-Type':'application/json'},
           body:JSON.stringify({Expense:{amount:txn.amount,date:txn.date,description:txn.description,notes:txn.notes||''}})});
