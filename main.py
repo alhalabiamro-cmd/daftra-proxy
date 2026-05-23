@@ -14,20 +14,30 @@ def cors(r):
     return r
 
 def get_open_invoices():
+    """Fetch both unpaid (0) and partially paid (2) invoices"""
     try:
         all_invoices = []
-        page = 1
-        while True:
-            resp = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY}, params={'payment_status': '0', 'limit': 50, 'page': page})
-            data = resp.json()
-            invoices = data.get('data', [])
-            if not invoices:
-                break
-            all_invoices.extend(invoices)
-            if len(invoices) < 50:
-                break
-            page += 1
-        return all_invoices
+        for status in ['0', '2']:  # 0=unpaid, 2=partially paid
+            page = 1
+            while True:
+                resp = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY}, params={'payment_status': status, 'limit': 50, 'page': page})
+                data = resp.json()
+                invoices = data.get('data', [])
+                if not invoices:
+                    break
+                all_invoices.extend(invoices)
+                if len(invoices) < 50:
+                    break
+                page += 1
+        # Deduplicate by invoice id
+        seen = set()
+        unique = []
+        for inv in all_invoices:
+            inv_id = inv.get('Invoice', {}).get('id')
+            if inv_id and inv_id not in seen:
+                seen.add(inv_id)
+                unique.append(inv)
+        return unique
     except Exception as e:
         return []
 
@@ -70,7 +80,6 @@ def open_invoices_endpoint():
 
 @app.route('/record-payment', methods=['POST', 'OPTIONS'])
 def record_payment():
-    """Smart payment recording: fetches invoice to get client_id, then records via invoice_payments"""
     if request.method == 'OPTIONS':
         return cors(make_response('', 200))
     data = request.get_json()
@@ -85,19 +94,14 @@ def record_payment():
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
 
     try:
-        # Step 1: Get the invoice to find client_id
         inv_resp = requests.get(f"{DAFTRA_BASE}/invoices/{invoice_id}", headers=headers, timeout=30)
         inv_data = inv_resp.json()
-
         invoice = inv_data.get('data', {})
         if isinstance(invoice, list):
             invoice = invoice[0] if invoice else {}
         inv = invoice.get('Invoice', invoice)
-
         client_id = inv.get('client_id') or inv.get('ClientId')
         unpaid = float(inv.get('summary_unpaid', 0) or 0)
-
-        # Step 2: Record payment using invoice_payments endpoint
         pay_amount = min(float(amount), unpaid) if unpaid > 0 else float(amount)
 
         payload = {
@@ -105,12 +109,10 @@ def record_payment():
                 "invoice_id": str(invoice_id),
                 "amount": pay_amount,
                 "date": date,
-                "payment_method": "3",  # bank transfer
+                "payment_method": "3",
                 "notes": notes
             }
         }
-
-        # Also try client_payments if we have client_id
         if client_id:
             payload["InvoicePayment"]["client_id"] = str(client_id)
 
@@ -120,7 +122,6 @@ def record_payment():
         if pay_resp.status_code in [200, 201] or pay_data.get("result") == "successful" or (isinstance(pay_data.get("error"), dict) and pay_data["error"].get("result") == "successful"):
             return cors(make_response(jsonify({'success': True, 'data': pay_data}), 200))
         else:
-            # Fallback: try client_payments with client_id
             if client_id:
                 cp_payload = {
                     "ClientPayment": {
@@ -153,7 +154,7 @@ def analyze_bank():
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     open_invoices = get_open_invoices()
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia. IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as عملية تحويل داخلية which does NOT mean internal company transfer. If money is coming IN, it is likely a client_payment. If money is going OUT, classify based on who receives it. Known employees always classify as salary: SALAMUDDIN is Installation Manager Riyadh, SIKANDAR is Installation Manager Dammam, TAUFEEK or TAUFEEQ is Driver, YAZEEN or يزن is Branch Manager Qassim, MALIK or مالك is Freelance Installer Qassim. Known transportation always classify as transportation: IBRAHIM or ابراهيم is Truck or Freight, عبدالحسيب is Internal delivery driver Riyadh and Eastern Province. Known local suppliers always classify as local_supplier: شركة مصنع واهوي للرخام, شركة قمم الشام للتجارة, شركة السنا للرخام والسراميك, مؤسسة جنى مارين للتجارة. Known clients always classify as client_payment when money comes IN: مؤسسة ريميندر, مؤسسة مهجة التجارية, MISHARY ADEL ALZAMIL, SHARAF AMER ALTALHI, هشام المسيند, نور البنعلى, اسامه زيد العنزي, وليد الجحيش, سفيان زامل الزامل. Owner personal draws classify as personal: AMRO or عمرو الحلبي is Owner, اميرة is Owner mother. Other: سليمان المهوس is rent Buraydah Branch, مؤسسة جي مارين للتجارة is rent Riyadh Branch, GBOUEO02 is china_supplier, Traffic violations is government, LOANFLEET is loan, Mudud payroll is salary, نقاط بيع MALI QURTOBA is client_payment, Bank fees is bank_fee. Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
+    prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia. IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as عملية تحويل داخلية which does NOT mean internal company transfer. If money is coming IN, it is likely a client_payment. If money is going OUT, classify based on who receives it. Known employees always classify as salary: SALAMUDDIN is Installation Manager Riyadh, SIKANDAR is Installation Manager Dammam, TAUFEEK or TAUFEEQ is Driver, YAZEEN or يزن is Branch Manager Qassim, MALIK or مالك is Freelance Installer Qassim. Known transportation always classify as transportation: IBRAHIM or ابراهيم is Truck or Freight, عبدالحسيب is Internal delivery driver Riyadh and Eastern Province. Known local suppliers always classify as local_supplier: شركة مصنع واهوي للرخام, شركة قمم الشام للتجارة, شركة السنا للرخام والسراميك, مؤسسة جنى مارين للتجارة. Known clients always classify as client_payment when money comes IN: مؤسسة ريميندر, مؤسسة مهجة التجارية, MISHARY ADEL ALZAMIL, SHARAF AMER ALTALHI, هشام المسيند, نور البنعلى, اسامه زيد العنزي, وليد الجحيش, سفيان زامل الزامل, مؤسسة الخدمات التجارية المتكاملة. Owner personal draws classify as personal: AMRO or عمرو الحلبي is Owner, اميرة is Owner mother. Other: سليمان المهوس is rent Buraydah Branch, مؤسسة جي مارين للتجارة is rent Riyadh Branch, GBOUEO02 is china_supplier, Traffic violations is government, LOANFLEET is loan, Mudud payroll is salary, نقاط بيع MALI QURTOBA is client_payment, Bank fees is bank_fee. Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
     try:
         msg = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=8000, messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:8000]}])
         raw = msg.content[0].text
