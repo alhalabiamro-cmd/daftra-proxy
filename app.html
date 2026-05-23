@@ -285,49 +285,46 @@ async function extractExcelText(file){
         const sheet=workbook.Sheets[workbook.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
         
-        // Try to detect AlRajhi Excel format
-        // Headers are usually in first few rows
-        let headerRow=-1;
-        let colMap={date:-1,description:-1,debit:-1,credit:-1,balance:-1,party:-1};
+        // AlRajhi Business Excel format (known column positions):
+        // Col 2 = details/party name (includes CA: account number)
+        // Col 3 = transaction type
+        // Col 6 = balance
+        // Col 9 = date (gregorian)
+        // Col 10 = debit amount (negative/outgoing)
+        // Col 11 = credit amount (positive/incoming)
         
-        for(let i=0;i<Math.min(10,rows.length);i++){
-          const row=rows[i].map(c=>String(c||'').toLowerCase());
-          // Look for date column
-          if(row.some(c=>c.includes('تاريخ')||c.includes('date'))){
-            headerRow=i;
-            row.forEach((c,j)=>{
-              if(c.includes('تاريخ')||c.includes('date'))colMap.date=j;
-              if(c.includes('بيان')||c.includes('وصف')||c.includes('description')||c.includes('details'))colMap.description=j;
-              if(c.includes('مدين')||c.includes('debit')||c.includes('سحب'))colMap.debit=j;
-              if(c.includes('دائن')||c.includes('credit')||c.includes('إيداع')||c.includes('ايداع'))colMap.credit=j;
-              if(c.includes('رصيد')||c.includes('balance'))colMap.balance=j;
-              if(c.includes('اسم')||c.includes('name')||c.includes('طرف')||c.includes('مستفيد'))colMap.party=j;
-            });
+        // Find data start row (look for row with date-like content)
+        let dataStart=20;
+        for(let i=0;i<rows.length;i++){
+          const r=rows[i];
+          // Look for header row with مدين/دائن
+          const vals=r.map(c=>String(c||''));
+          if(vals.some(c=>c.includes('مدين'))&&vals.some(c=>c.includes('دائن'))){
+            dataStart=i+1;
             break;
           }
         }
         
-        // Build structured text for AI
-        let lines=['Bank Statement - Excel Format'];
-        lines.push('Date | Description | Party | Debit | Credit | Balance');
+        let lines=['Bank Statement - AlRajhi Excel Format'];
+        lines.push('Date | Transaction_Type | Party_Details | Debit | Credit | Balance');
         lines.push('---');
         
-        const dataRows=rows.slice(headerRow+1);
-        dataRows.forEach(row=>{
-          if(!row||row.length===0)return;
-          const date=colMap.date>=0?String(row[colMap.date]||''):'';
-          const desc=colMap.description>=0?String(row[colMap.description]||''):'';
-          const party=colMap.party>=0?String(row[colMap.party]||''):'';
-          const debit=colMap.debit>=0?String(row[colMap.debit]||''):'';
-          const credit=colMap.credit>=0?String(row[colMap.credit]||''):'';
-          const balance=colMap.balance>=0?String(row[colMap.balance]||''):'';
+        rows.slice(dataStart).forEach(row=>{
+          if(!row||row.length<10)return;
+          const party=String(row[2]||'').trim();
+          const txType=String(row[3]||'').trim();
+          const balance=String(row[6]||'').trim();
+          const rawDate=row[9];
+          let date='';
+          if(rawDate instanceof Date){date=rawDate.toISOString().split('T')[0];}
+          else if(rawDate){date=String(rawDate).split(' ')[0]||'';}
+          const debit=String(row[10]||'').trim();
+          const credit=String(row[11]||'').trim();
           
-          // Skip empty rows
-          if(!date&&!desc&&!debit&&!credit)return;
-          // Skip header-like rows
-          if(desc.includes('بيان')||desc.includes('وصف'))return;
+          if(!date&&!party&&!debit&&!credit)return;
+          if(!debit&&!credit)return;
           
-          lines.push(`${date} | ${desc} | ${party} | DEBIT:${debit} | CREDIT:${credit} | BAL:${balance}`);
+          lines.push(`${date} | ${txType} | ${party} | DEBIT:${debit} | CREDIT:${credit} | BAL:${balance}`);
         });
         
         resolve(lines.join('\n'));
