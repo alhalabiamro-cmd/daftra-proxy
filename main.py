@@ -32,8 +32,6 @@ ACCOUNT_TO_CLIENT = {
     '077050010006087400188': 'TAUFEEK',
     '697000010006086135855': 'يزن',
     '192000010006080456273': 'مالك',
-
-    # Former employees
     'MOATAZ': 'معتز',
 
     # Transportation
@@ -79,16 +77,19 @@ ACCOUNT_CATEGORY = {
     '539000010006085772890': 'personal',
 }
 
-# Daftra expense category names (will be matched by keyword)
-EXPENSE_CATEGORY_KEYWORDS = {
-    'salary':         ['راتب', 'رواتب', 'أجور', 'salary'],
-    'rent':           ['إيجار', 'ايجار', 'rent'],
-    'transportation': ['نقل', 'شحن', 'مواصلات', 'transport'],
-    'government':     ['حكومي', 'تأشيرة', 'مخالفة', 'government', 'pro'],
-    'personal':       ['شخصي', 'سحب', 'personal'],
-    'bank_fee':       ['بنكي', 'رسوم', 'بطاقة', 'bank', 'fee'],
-    'loan':           ['قرض', 'تمويل', 'loan'],
-    'other':          ['أخرى', 'other'],
+# Map our categories to Daftra chart-of-accounts IDs (from the screenshot)
+# #56 = مصروف الرواتب والاجور
+# #52 = مصروفات إدارية وعمومية
+# #54 = مصروفات أخرى
+EXPENSE_ACCOUNT_ID = {
+    'salary':         '56',   # مصروف الرواتب والاجور
+    'rent':           '52',   # مصروفات إدارية وعمومية
+    'transportation': '52',   # مصروفات إدارية وعمومية
+    'government':     '52',   # مصروفات إدارية وعمومية
+    'bank_fee':       '52',   # مصروفات إدارية وعمومية
+    'personal':       '54',   # مصروفات أخرى
+    'loan':           '54',   # مصروفات أخرى
+    'other':          '54',   # مصروفات أخرى
 }
 
 def cors(r):
@@ -97,27 +98,7 @@ def cors(r):
     r.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, APIKEY'
     return r
 
-def get_daftra_expense_categories():
-    try:
-        r = requests.get(f"{DAFTRA_BASE}/expense_categories", headers={'APIKEY': APIKEY}, timeout=15)
-        data = r.json()
-        return data.get('data', [])
-    except:
-        return []
-
-def find_expense_category_id(category):
-    """Match our internal category to a Daftra expense category ID by keyword"""
-    cats = get_daftra_expense_categories()
-    keywords = EXPENSE_CATEGORY_KEYWORDS.get(category, [])
-    for cat in cats:
-        item = cat.get('ExpenseCategory', cat)
-        name = (item.get('name', '') or '').lower()
-        if any(kw.lower() in name for kw in keywords):
-            return item.get('id')
-    return None
-
 def get_open_invoices(invoice_type='sales'):
-    """Get open sales or purchase invoices"""
     try:
         all_invoices = []
         endpoint = 'invoices' if invoice_type == 'sales' else 'purchase_invoices'
@@ -320,7 +301,6 @@ def record_payment():
 
 @app.route('/record-purchase-payment', methods=['POST', 'OPTIONS'])
 def record_purchase_payment():
-    """Record payment against a supplier purchase invoice"""
     if request.method == 'OPTIONS':
         return cors(make_response('', 200))
     data = request.get_json()
@@ -364,73 +344,24 @@ def record_expense():
 
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
     try:
-        category_id = find_expense_category_id(category)
+        # Use chart-of-accounts ID directly
+        account_id = EXPENSE_ACCOUNT_ID.get(category, '54')
+
         payload = {
             "Expense": {
                 "amount": float(amount),
                 "date": date,
                 "description": description,
-                "notes": notes
+                "notes": notes,
+                "expense_category_id": account_id
             }
         }
-        if category_id:
-            payload["Expense"]["expense_category_id"] = str(category_id)
 
         resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, json=payload, timeout=30)
         resp_data = resp.json()
         if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
-            return cors(make_response(jsonify({'success': True, 'category_id_used': category_id, 'data': resp_data}), 200))
+            return cors(make_response(jsonify({'success': True, 'account_id_used': account_id, 'data': resp_data}), 200))
         return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
-    except Exception as e:
-        return cors(make_response(jsonify({'error': str(e)}), 500))
-
-@app.route('/setup-expense-categories', methods=['POST', 'OPTIONS'])
-def setup_expense_categories():
-    """Create standard expense categories in Daftra if they don't exist"""
-    if request.method == 'OPTIONS':
-        return cors(make_response('', 200))
-
-    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
-    needed = [
-        'رواتب وأجور',
-        'إيجارات',
-        'نقل وشحن',
-        'مصاريف حكومية',
-        'سحوبات شخصية',
-        'قروض وتمويل',
-        'مصاريف بنكية',
-    ]
-
-    try:
-        existing_resp = requests.get(f"{DAFTRA_BASE}/expense_categories", headers=headers, timeout=15)
-        existing = existing_resp.json().get('data', [])
-        existing_names = [
-            (c.get('ExpenseCategory', c).get('name', '') or '').strip()
-            for c in existing
-        ]
-
-        created = []
-        skipped = []
-        for name in needed:
-            if any(name in en or en in name for en in existing_names):
-                skipped.append(name)
-                continue
-            r = requests.post(
-                f"{DAFTRA_BASE}/expense_categories",
-                headers=headers,
-                json={"ExpenseCategory": {"name": name}},
-                timeout=15
-            )
-            if r.status_code in [200, 201] or r.json().get('result') == 'successful':
-                created.append(name)
-            else:
-                created.append(f"{name} (خطأ: {r.text[:50]})")
-
-        return cors(make_response(jsonify({
-            'created': created,
-            'skipped': skipped,
-            'existing_before': existing_names
-        }), 200))
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
