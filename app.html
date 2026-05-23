@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>مزامنة البنك — دفترة v5</title>
+<title>مزامنة البنك — دفترة v6</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -49,7 +49,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .metric .lbl{font-size:11px;color:var(--muted);margin-bottom:6px}
 .metric .val{font-size:20px;font-weight:700}
 .metric .val.green{color:var(--green)}.metric .val.red{color:var(--red)}.metric .val.gold{color:var(--accent)}.metric .val.orange{color:var(--orange)}
-.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tabs{display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;flex-wrap:wrap}
 .tab{padding:8px 16px;font-size:13px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:.2s}
 .tab:hover{color:var(--text)}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
@@ -109,11 +109,15 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .btn-skip-waiting{padding:7px 14px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:6px;font-size:12px;cursor:pointer;margin-top:8px;margin-right:6px}
 .empty-state{text-align:center;padding:40px;color:var(--muted);font-size:14px}
 .action-bar{position:sticky;bottom:0;background:var(--bg);border-top:1px solid var(--border);padding:16px 0;margin-top:20px;display:none}
-.action-bar-inner{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.action-bar-inner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .sel-info{font-size:13px;color:var(--muted)}
 .sel-info strong{color:var(--accent);font-size:15px}
+.action-btns{display:flex;gap:8px;flex-wrap:wrap}
 .btn-post{padding:12px 28px;background:var(--accent);color:#000;border:none;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer}
 .btn-post:disabled{opacity:.4;cursor:not-allowed}
+.btn-excel{padding:12px 22px;background:#1a3a1a;color:var(--green);border:1px solid var(--green);border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;display:flex;align-items:center;gap:8px}
+.btn-excel:hover{background:#0f2a0f}
+.btn-excel:disabled{opacity:.4;cursor:not-allowed}
 .btn-outline{padding:10px 18px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer}
 .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:100;align-items:center;justify-content:center}
 .modal-bg.show{display:flex}
@@ -201,9 +205,10 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
   <div class="action-bar" id="action-bar">
     <div class="action-bar-inner">
       <div class="sel-info">تم اختيار <strong id="sel-count">0</strong> معاملة</div>
-      <div style="display:flex;gap:8px">
+      <div class="action-btns">
         <button class="btn-outline" onclick="selectRelevant()">اختر المهمة فقط</button>
-        <button class="btn-post" id="post-btn" onclick="postToDaftra()">✅ سجّل في دفترة</button>
+        <button class="btn-excel" id="excel-btn" onclick="exportToExcel()" disabled>📥 تصدير Excel</button>
+        <button class="btn-post" id="post-btn" onclick="postToDaftra()" disabled>✅ سجّل في دفترة</button>
       </div>
     </div>
   </div>
@@ -222,9 +227,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/p
 const PROXY='https://web-production-996d9.up.railway.app';
 let allTxns=[],filtered=[],currentFilter='all',allInvoices=[];
 let waitingList=[],currentTab='all',invoiceBalances={};
+let bankPeriod='',bankName='';
 
 function resetApp(){
-  allTxns=[];filtered=[];allInvoices=[];waitingList=[];invoiceBalances={};currentTab='all';
+  allTxns=[];filtered=[];allInvoices=[];waitingList=[];invoiceBalances={};currentTab='all';bankPeriod='';bankName='';
   document.getElementById('screen-upload').style.display='block';
   document.getElementById('screen-analysis').style.display='none';
   document.getElementById('screen-review').style.display='none';
@@ -284,31 +290,17 @@ async function extractExcelText(file){
         const workbook=XLSX.read(data,{type:'array',cellDates:true});
         const sheet=workbook.Sheets[workbook.SheetNames[0]];
         const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
-        
-        // AlRajhi Business Excel format (known column positions):
-        // Col 2 = details/party name (includes CA: account number)
-        // Col 3 = transaction type
-        // Col 6 = balance
-        // Col 9 = date (gregorian)
-        // Col 10 = debit amount (negative/outgoing)
-        // Col 11 = credit amount (positive/incoming)
-        
-        // Find data start row (look for row with date-like content)
         let dataStart=20;
         for(let i=0;i<rows.length;i++){
           const r=rows[i];
-          // Look for header row with مدين/دائن
           const vals=r.map(c=>String(c||''));
           if(vals.some(c=>c.includes('مدين'))&&vals.some(c=>c.includes('دائن'))){
-            dataStart=i+1;
-            break;
+            dataStart=i+1;break;
           }
         }
-        
         let lines=['Bank Statement - AlRajhi Excel Format'];
         lines.push('Date | Transaction_Type | Party_Details | Debit | Credit | Balance');
         lines.push('---');
-        
         rows.slice(dataStart).forEach(row=>{
           if(!row||row.length<10)return;
           const party=String(row[2]||'').trim();
@@ -320,13 +312,10 @@ async function extractExcelText(file){
           else if(rawDate){date=String(rawDate).split(' ')[0]||'';}
           const debit=String(row[10]||'').trim();
           const credit=String(row[11]||'').trim();
-          
           if(!date&&!party&&!debit&&!credit)return;
           if(!debit&&!credit)return;
-          
           lines.push(`${date} | ${txType} | ${party} | DEBIT:${debit} | CREDIT:${credit} | BAL:${balance}`);
         });
-        
         resolve(lines.join('\n'));
       }catch(err){reject(err);}
     };
@@ -349,6 +338,7 @@ async function analyzeWithServer(bankText){
     setProgress(70,'جاري معالجة النتائج...');
     const data=await response.json();if(data.error)throw new Error(data.error);
     const result=typeof data==='object'?data:JSON.parse(data);
+    bankPeriod=result.period||'';bankName=result.bank||'الراجحي';
     log('تم اكتشاف '+(result.transactions?.length||0)+' معاملة','ok');
     setProgress(85,'جاري تحميل فواتير دفترة...');
     allInvoices=await loadDaftraInvoices();
@@ -405,6 +395,7 @@ function renderReview(result){
   document.getElementById('badge-waiting').textContent=waiting;
   if(waiting>0){document.getElementById('badge-waiting').classList.add('orange');document.getElementById('tab-waiting').style.color='var(--orange)';}
   filtered=[...txns];renderAllTab(filtered);renderClientsTab();renderWaitingTab();updateSelCount();
+  document.getElementById('excel-btn').disabled=false;
 }
 
 function switchTab(tab){currentTab=tab;['all','clients','waiting'].forEach(t=>{document.getElementById('tab-'+t).className='tab'+(t===tab?' active':'');document.getElementById('panel-'+t).style.display=t===tab?'block':'none';});updateSelCount();}
@@ -526,6 +517,119 @@ function selectRelevant(){document.querySelectorAll('.txn-chk').forEach((c,i)=>{
 function updateSelCount(){const cnt=document.querySelectorAll('.txn-chk:checked, .client-chk:checked').length;document.getElementById('sel-count').textContent=cnt;document.getElementById('post-btn').disabled=cnt===0;}
 function fmt(n){return Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
+// ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
+function exportToExcel(){
+  if(!allTxns.length){alert('لا توجد بيانات للتصدير');return;}
+
+  const wb = XLSX.utils.book_new();
+  const catNames={client_payment:'دفعة عميل',china_supplier:'مورد صيني',local_supplier:'مورد محلي',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم بنكية',transportation:'نقل',loan:'قرض',other:'أخرى'};
+  const dirNames={in:'وارد',out:'صادر'};
+
+  // ── Sheet 1: كل المعاملات ────────────────────────────────
+  const allRows=[['التاريخ','الوصف','الطرف','التصنيف','الاتجاه','المبلغ (SAR)','رقم الفاتورة','العميل','حالة الربط','ملاحظات']];
+  allTxns.forEach(t=>{
+    let invNo='',invClient='',matchStatus='';
+    if(t._match){
+      const ms=Array.isArray(t._match)?t._match:[t._match];
+      invNo=ms.map(m=>m.no).join(' + ');
+      invClient=ms[0].client||'';
+      const statusMap={exact:'مطابق تام',close:'قريب',partial:'دفعة جزئية',combined:'مجموع فاتورتين',manual:'يدوي'};
+      matchStatus=statusMap[t._matchType]||t._matchType||'';
+    } else if(t.daftra_action==='waiting_list'){matchStatus='قائمة الانتظار';}
+    allRows.push([t.date||'',t.description||'',t.party||'',catNames[t.category]||t.category||'',dirNames[t.direction]||t.direction||'',parseFloat(t.amount||0),invNo,invClient,matchStatus,t.notes||'']);
+  });
+  const ws1=XLSX.utils.aoa_to_sheet(allRows);
+  ws1['!cols']=[{wch:12},{wch:35},{wch:25},{wch:14},{wch:8},{wch:14},{wch:18},{wch:28},{wch:18},{wch:20}];
+  styleHeader(ws1,allRows[0].length);
+  XLSX.utils.book_append_sheet(wb,ws1,'كل المعاملات');
+
+  // ── Sheet 2: دفعات العملاء ───────────────────────────────
+  const clients=allTxns.filter(t=>t.direction==='in'&&t.category==='client_payment');
+  const clientRows=[['التاريخ','الوصف','الطرف','المبلغ المدفوع (SAR)','رقم الفاتورة','العميل','إجمالي الفاتورة (SAR)','المتبقي (SAR)','نسبة السداد','نوع التطابق','الإجراء في دفترة']];
+  clients.forEach(t=>{
+    let invNo='',invClient='',invTotal=0,invRemaining=0,pct='',matchType='',daftraAction='';
+    if(t._match){
+      const ms=Array.isArray(t._match)?t._match:[t._match];
+      invNo=ms.map(m=>m.no).join(' + ');invClient=ms[0].client||'';
+      invTotal=ms.reduce((s,m)=>s+(invoiceBalances[m.id]?.unpaid||0),0);
+      invRemaining=ms.reduce((s,m)=>{const b=invoiceBalances[m.id];return s+(b?b.unpaid-b.paidSoFar:0);},0);
+      pct=invTotal>0?Math.round(parseFloat(t.amount||0)/invTotal*100)+'%':'';
+      const statusMap={exact:'مطابق تام',close:'قريب',partial:'جزئي',combined:'مجموع',manual:'يدوي'};
+      matchType=statusMap[t._matchType]||'';
+      daftraAction='تسجيل دفعة';
+    } else if(t.daftra_action==='waiting_list'){matchType='قائمة الانتظار';daftraAction='مراجعة يدوية';}
+    clientRows.push([t.date||'',t.description||'',t.party||'',parseFloat(t.amount||0),invNo,invClient,invTotal||'',invRemaining||'',pct,matchType,daftraAction]);
+  });
+  const ws2=XLSX.utils.aoa_to_sheet(clientRows);
+  ws2['!cols']=[{wch:12},{wch:30},{wch:22},{wch:18},{wch:18},{wch:28},{wch:18},{wch:16},{wch:12},{wch:14},{wch:16}];
+  styleHeader(ws2,clientRows[0].length);
+  XLSX.utils.book_append_sheet(wb,ws2,'دفعات العملاء');
+
+  // ── Sheet 3: المصاريف ────────────────────────────────────
+  const expenses=allTxns.filter(t=>t.direction==='out');
+  const expRows=[['التاريخ','الوصف','الطرف','التصنيف','المبلغ (SAR)','الإجراء في دفترة','ملاحظات']];
+  expenses.forEach(t=>{
+    const action=t.daftra_action==='record_expense'?'تسجيل مصروف':t.daftra_action==='skip'?'تجاهل':'مراجعة';
+    expRows.push([t.date||'',t.description||'',t.party||'',catNames[t.category]||'',parseFloat(t.amount||0),action,t.notes||'']);
+  });
+  // Totals by category
+  expRows.push([]);expRows.push(['ملخص المصاريف بالتصنيف','','','','','','']);
+  const catTotals={};expenses.forEach(t=>{const c=catNames[t.category]||t.category||'أخرى';catTotals[c]=(catTotals[c]||0)+parseFloat(t.amount||0);});
+  Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).forEach(([cat,total])=>expRows.push([cat,'','','',total,'','']));
+  expRows.push(['الإجمالي','','','',expenses.reduce((s,t)=>s+parseFloat(t.amount||0),0),'','']);
+  const ws3=XLSX.utils.aoa_to_sheet(expRows);
+  ws3['!cols']=[{wch:12},{wch:35},{wch:22},{wch:14},{wch:14},{wch:16},{wch:20}];
+  styleHeader(ws3,expRows[0].length);
+  XLSX.utils.book_append_sheet(wb,ws3,'المصاريف');
+
+  // ── Sheet 4: الملخص الشهري ──────────────────────────────
+  // Group by month
+  const monthly={};
+  allTxns.forEach(t=>{
+    const d=t.date||'';const month=d.substring(0,7)||'غير محدد';
+    if(!monthly[month])monthly[month]={in:0,out:0,clients:0,salary:0,rent:0,china:0,supplier:0,other:0,count:0};
+    const m=monthly[month];m.count++;
+    if(t.direction==='in'){m.in+=parseFloat(t.amount||0);if(t.category==='client_payment')m.clients+=parseFloat(t.amount||0);}
+    else{m.out+=parseFloat(t.amount||0);if(t.category==='salary')m.salary+=parseFloat(t.amount||0);else if(t.category==='rent')m.rent+=parseFloat(t.amount||0);else if(t.category==='china_supplier')m.china+=parseFloat(t.amount||0);else if(t.category==='local_supplier')m.supplier+=parseFloat(t.amount||0);else m.other+=parseFloat(t.amount||0);}
+  });
+  const summaryRows=[
+    ['ملخص كشف الحساب — معالي قرطبة للرخام'],
+    ['البنك:',bankName,'الفترة:',bankPeriod],
+    ['تاريخ التصدير:',new Date().toLocaleDateString('ar-SA')],
+    [],
+    ['الشهر','عدد المعاملات','إجمالي الإيداعات','منها دفعات عملاء','إجمالي السحوبات','منها رواتب','منها إيجارات','منها موردو الصين','منها موردو محليون','مصاريف أخرى','صافي الشهر']
+  ];
+  const months=Object.keys(monthly).sort();
+  months.forEach(m=>{
+    const d=monthly[m];
+    summaryRows.push([m,d.count,d.in,d.clients,d.out,d.salary,d.rent,d.china,d.supplier,d.other,d.in-d.out]);
+  });
+  // Grand total row
+  const totals=months.reduce((acc,m)=>{const d=monthly[m];acc.count+=d.count;acc.in+=d.in;acc.clients+=d.clients;acc.out+=d.out;acc.salary+=d.salary;acc.rent+=d.rent;acc.china+=d.china;acc.supplier+=d.supplier;acc.other+=d.other;return acc;},{count:0,in:0,clients:0,out:0,salary:0,rent:0,china:0,supplier:0,other:0});
+  summaryRows.push(['الإجمالي',totals.count,totals.in,totals.clients,totals.out,totals.salary,totals.rent,totals.china,totals.supplier,totals.other,totals.in-totals.out]);
+
+  const ws4=XLSX.utils.aoa_to_sheet(summaryRows);
+  ws4['!cols']=[{wch:14},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:14},{wch:16},{wch:16},{wch:14},{wch:14}];
+  ws4['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}}];
+  styleHeader(ws4,11,4); // header at row index 4
+  XLSX.utils.book_append_sheet(wb,ws4,'الملخص الشهري');
+
+  // ── Download ─────────────────────────────────────────────
+  const date=new Date().toISOString().split('T')[0];
+  const filename=`معالي_قرطبة_كشف_بنكي_${date}.xlsx`;
+  XLSX.writeFile(wb,filename);
+}
+
+function styleHeader(ws,colCount,headerRow=0){
+  for(let c=0;c<colCount;c++){
+    const addr=XLSX.utils.encode_cell({r:headerRow,c});
+    if(!ws[addr])continue;
+    ws[addr].s={font:{bold:true,color:{rgb:'C9A96E'}},fill:{fgColor:{rgb:'1A1A00'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function postToDaftra(){
   const btn=document.getElementById('post-btn');btn.disabled=true;btn.textContent='⏳ جاري التسجيل...';
   const allChecked=[...document.querySelectorAll('.txn-chk:checked'),...document.querySelectorAll('.client-chk:checked')];
@@ -550,6 +654,7 @@ async function postToDaftra(){
   document.getElementById('modal-num').textContent=success;
   document.getElementById('modal-text').textContent=`معاملة تم تسجيلها في دفترة${failed>0?' ('+failed+' فشلت)':''}`;
   document.getElementById('modal').classList.add('show');btn.textContent='✅ سجّل في دفترة';
+  btn.disabled=false;
 }
 </script>
 </body>
