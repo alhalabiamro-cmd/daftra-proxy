@@ -68,6 +68,79 @@ def open_invoices_endpoint():
     invoices = get_open_invoices()
     return cors(make_response(jsonify({'invoices': invoices, 'count': len(invoices)}), 200))
 
+@app.route('/record-payment', methods=['POST', 'OPTIONS'])
+def record_payment():
+    """Smart payment recording: fetches invoice to get client_id, then records via invoice_payments"""
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    data = request.get_json()
+    invoice_id = data.get('invoice_id')
+    amount = data.get('amount')
+    date = data.get('date')
+    notes = data.get('notes', '')
+
+    if not invoice_id or not amount:
+        return cors(make_response(jsonify({'error': 'invoice_id and amount required'}), 400))
+
+    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
+
+    try:
+        # Step 1: Get the invoice to find client_id
+        inv_resp = requests.get(f"{DAFTRA_BASE}/invoices/{invoice_id}", headers=headers, timeout=30)
+        inv_data = inv_resp.json()
+
+        invoice = inv_data.get('data', {})
+        if isinstance(invoice, list):
+            invoice = invoice[0] if invoice else {}
+        inv = invoice.get('Invoice', invoice)
+
+        client_id = inv.get('client_id') or inv.get('ClientId')
+        unpaid = float(inv.get('summary_unpaid', 0) or 0)
+
+        # Step 2: Record payment using invoice_payments endpoint
+        pay_amount = min(float(amount), unpaid) if unpaid > 0 else float(amount)
+
+        payload = {
+            "InvoicePayment": {
+                "invoice_id": str(invoice_id),
+                "amount": pay_amount,
+                "date": date,
+                "payment_method": "3",  # bank transfer
+                "notes": notes
+            }
+        }
+
+        # Also try client_payments if we have client_id
+        if client_id:
+            payload["InvoicePayment"]["client_id"] = str(client_id)
+
+        pay_resp = requests.post(f"{DAFTRA_BASE}/invoice_payments", headers=headers, json=payload, timeout=30)
+        pay_data = pay_resp.json()
+
+        if pay_resp.status_code in [200, 201]:
+            return cors(make_response(jsonify({'success': True, 'data': pay_data}), 200))
+        else:
+            # Fallback: try client_payments with client_id
+            if client_id:
+                cp_payload = {
+                    "ClientPayment": {
+                        "client_id": str(client_id),
+                        "amount": float(amount),
+                        "date": date,
+                        "payment_method": "3",
+                        "notes": notes,
+                        "InvoicePayment": [{"invoice_id": str(invoice_id), "amount": pay_amount}]
+                    }
+                }
+                cp_resp = requests.post(f"{DAFTRA_BASE}/client_payments", headers=headers, json=cp_payload, timeout=30)
+                if cp_resp.status_code in [200, 201]:
+                    return cors(make_response(jsonify({'success': True, 'data': cp_resp.json()}), 200))
+                return cors(make_response(jsonify({'error': cp_resp.json(), 'invoice_resp': pay_data}), 400))
+            return cors(make_response(jsonify({'error': pay_data}), pay_resp.status_code))
+
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
 @app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
 def analyze_bank():
     if request.method == 'OPTIONS':
