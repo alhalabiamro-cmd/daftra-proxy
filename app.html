@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>مزامنة البنك — دفترة v4</title>
+<title>مزامنة البنك — دفترة v5</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{--bg:#0f0f0f;--surface:#1a1a1a;--surface2:#222;--border:#2a2a2a;--text:#f0f0f0;--muted:#777;--accent:#c9a96e;--accent2:#e8c88a;--green:#4caf50;--red:#ef5350;--blue:#42a5f5;--orange:#ffa726;--purple:#ce93d8}
@@ -26,10 +27,15 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .upload-area{border:2px dashed var(--border);border-radius:14px;padding:48px 24px;text-align:center;cursor:pointer;transition:.3s;background:var(--surface)}
 .upload-area:hover,.upload-area.drag{border-color:var(--accent);background:#1a1500}
 .upload-area h3{font-size:16px;margin-bottom:8px}
-.upload-area p{font-size:13px;color:var(--muted)}
+.upload-area p{font-size:13px;color:var(--muted);margin-bottom:4px}
 .upload-icon{font-size:48px;margin-bottom:16px}
-.btn-upload{display:inline-block;margin-top:16px;padding:10px 24px;background:var(--accent);color:#000;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none}
+.file-type-btns{display:flex;gap:10px;justify-content:center;margin-top:16px}
+.btn-upload{display:inline-block;padding:10px 24px;background:var(--accent);color:#000;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:none}
+.btn-upload-excel{display:inline-block;padding:10px 24px;background:#1a3a1a;color:var(--green);border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;border:1px solid var(--green)}
+.btn-upload-excel:hover{background:#0f2a0f}
 #file-input{display:none}
+#file-input-excel{display:none}
+.excel-tip{font-size:11px;color:var(--green);margin-top:8px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
 .card-title{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .progress-bar-bg{background:var(--border);border-radius:20px;height:6px;margin:12px 0}
@@ -88,7 +94,6 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .inv-option-right{text-align:left}
 .inv-option-amt{font-size:13px;font-weight:600;color:var(--orange)}
 .inv-option-paid{font-size:10px;color:var(--muted)}
-/* Manual invoice input */
 .manual-input-wrap{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
 .manual-input-label{font-size:11px;color:var(--muted);margin-bottom:6px}
 .manual-input-row{display:flex;gap:8px;align-items:center}
@@ -134,12 +139,18 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
     <div class="step" id="step3"><div class="step-num">3</div>مراجعة وتسجيل</div>
   </div>
   <div id="screen-upload">
-    <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
-      <div class="upload-icon">📄</div>
+    <div class="upload-area" id="drop-zone" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+      <div class="upload-icon">📊</div>
       <h3>ارفع كشف الحساب البنكي</h3>
-      <p>PDF من الراجحي أو بنك الرياض أو أي بنك آخر</p>
-      <label class="btn-upload">اختر ملف PDF</label>
-      <input type="file" id="file-input" accept=".pdf" onchange="handleFile(this.files[0])">
+      <p style="color:var(--green);font-weight:600">Excel أفضل — يعطي نتائج أدق</p>
+      <p>أو ارفع PDF من الراجحي أو أي بنك آخر</p>
+      <div class="file-type-btns">
+        <label class="btn-upload-excel" onclick="document.getElementById('file-input-excel').click()">📗 ارفع Excel (xlsx)</label>
+        <label class="btn-upload" onclick="document.getElementById('file-input').click()">📄 ارفع PDF</label>
+      </div>
+      <input type="file" id="file-input" accept=".pdf" onchange="handleFile(this.files[0],'pdf')">
+      <input type="file" id="file-input-excel" accept=".xlsx,.xls,.csv" onchange="handleFile(this.files[0],'excel')">
+      <div class="excel-tip">💡 لتحميل Excel من الراجحي: كشف الحساب → تصدير → Excel</div>
     </div>
   </div>
   <div id="screen-analysis" style="display:none">
@@ -221,6 +232,7 @@ function resetApp(){
   document.getElementById('modal').classList.remove('show');
   ['step1','step2','step3'].forEach((id,i)=>document.getElementById(id).className='step'+(i===0?' active':''));
   document.getElementById('file-input').value='';
+  document.getElementById('file-input-excel').value='';
   document.getElementById('log').innerHTML='';
 }
 async function checkProxy(){
@@ -231,22 +243,107 @@ async function checkProxy(){
 checkProxy();
 function log(msg,type='info'){const l=document.getElementById('log');const d=document.createElement('div');d.className=type;d.textContent='› '+msg;l.appendChild(d);l.scrollTop=l.scrollHeight;}
 function setProgress(pct,msg){document.getElementById('prog-bar').style.width=pct+'%';document.getElementById('prog-text').textContent=msg;}
-function handleDrop(e){e.preventDefault();document.getElementById('drop-zone').classList.remove('drag');const file=e.dataTransfer.files[0];if(file&&file.type==='application/pdf')handleFile(file);else alert('الرجاء رفع ملف PDF');}
-async function handleFile(file){
+
+function handleDrop(e){
+  e.preventDefault();document.getElementById('drop-zone').classList.remove('drag');
+  const file=e.dataTransfer.files[0];if(!file)return;
+  const ext=file.name.split('.').pop().toLowerCase();
+  if(['xlsx','xls','csv'].includes(ext))handleFile(file,'excel');
+  else if(ext==='pdf')handleFile(file,'pdf');
+  else alert('الرجاء رفع ملف PDF أو Excel');
+}
+
+async function handleFile(file,type){
   if(!file)return;
   document.getElementById('screen-upload').style.display='none';
   document.getElementById('screen-analysis').style.display='block';
   document.getElementById('step1').className='step done';
   document.getElementById('step2').className='step active';
-  log('جاري قراءة الملف: '+file.name);setProgress(10,'جاري استخراج النص من PDF...');
-  try{const text=await extractPDFText(file);log('تم استخراج '+text.length+' حرف','ok');setProgress(35,'جاري إرسال الكشف للذكاء الاصطناعي...');await analyzeWithServer(text);}
-  catch(e){log('خطأ: '+e.message,'warn');}
+  log('جاري قراءة الملف: '+file.name);
+  setProgress(10,'جاري استخراج البيانات...');
+  try{
+    let text='';
+    if(type==='excel'){
+      text=await extractExcelText(file);
+      log('تم استخراج '+text.length+' حرف من Excel ✓','ok');
+    }else{
+      text=await extractPDFText(file);
+      log('تم استخراج '+text.length+' حرف من PDF','ok');
+    }
+    setProgress(35,'جاري إرسال الكشف للذكاء الاصطناعي...');
+    await analyzeWithServer(text);
+  }catch(e){log('خطأ: '+e.message,'warn');}
 }
+
+async function extractExcelText(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      try{
+        const data=new Uint8Array(e.target.result);
+        const workbook=XLSX.read(data,{type:'array',cellDates:true});
+        const sheet=workbook.Sheets[workbook.SheetNames[0]];
+        const rows=XLSX.utils.sheet_to_json(sheet,{header:1,defval:''});
+        
+        // Try to detect AlRajhi Excel format
+        // Headers are usually in first few rows
+        let headerRow=-1;
+        let colMap={date:-1,description:-1,debit:-1,credit:-1,balance:-1,party:-1};
+        
+        for(let i=0;i<Math.min(10,rows.length);i++){
+          const row=rows[i].map(c=>String(c||'').toLowerCase());
+          // Look for date column
+          if(row.some(c=>c.includes('تاريخ')||c.includes('date'))){
+            headerRow=i;
+            row.forEach((c,j)=>{
+              if(c.includes('تاريخ')||c.includes('date'))colMap.date=j;
+              if(c.includes('بيان')||c.includes('وصف')||c.includes('description')||c.includes('details'))colMap.description=j;
+              if(c.includes('مدين')||c.includes('debit')||c.includes('سحب'))colMap.debit=j;
+              if(c.includes('دائن')||c.includes('credit')||c.includes('إيداع')||c.includes('ايداع'))colMap.credit=j;
+              if(c.includes('رصيد')||c.includes('balance'))colMap.balance=j;
+              if(c.includes('اسم')||c.includes('name')||c.includes('طرف')||c.includes('مستفيد'))colMap.party=j;
+            });
+            break;
+          }
+        }
+        
+        // Build structured text for AI
+        let lines=['Bank Statement - Excel Format'];
+        lines.push('Date | Description | Party | Debit | Credit | Balance');
+        lines.push('---');
+        
+        const dataRows=rows.slice(headerRow+1);
+        dataRows.forEach(row=>{
+          if(!row||row.length===0)return;
+          const date=colMap.date>=0?String(row[colMap.date]||''):'';
+          const desc=colMap.description>=0?String(row[colMap.description]||''):'';
+          const party=colMap.party>=0?String(row[colMap.party]||''):'';
+          const debit=colMap.debit>=0?String(row[colMap.debit]||''):'';
+          const credit=colMap.credit>=0?String(row[colMap.credit]||''):'';
+          const balance=colMap.balance>=0?String(row[colMap.balance]||''):'';
+          
+          // Skip empty rows
+          if(!date&&!desc&&!debit&&!credit)return;
+          // Skip header-like rows
+          if(desc.includes('بيان')||desc.includes('وصف'))return;
+          
+          lines.push(`${date} | ${desc} | ${party} | DEBIT:${debit} | CREDIT:${credit} | BAL:${balance}`);
+        });
+        
+        resolve(lines.join('\n'));
+      }catch(err){reject(err);}
+    };
+    reader.onerror=reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 async function extractPDFText(file){
   const buf=await file.arrayBuffer();const pdf=await pdfjsLib.getDocument({data:buf}).promise;let text='';
   for(let i=1;i<=pdf.numPages;i++){const page=await pdf.getPage(i);const content=await page.getTextContent();text+=content.items.map(s=>s.str).join(' ')+'\n';}
   return text;
 }
+
 async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
   const textChunk=bankText.length>18000?bankText.substring(0,18000):bankText;
@@ -261,14 +358,16 @@ async function analyzeWithServer(bankText){
     log('تم تحميل '+allInvoices.length+' فاتورة مفتوحة من دفترة','ok');
     setProgress(95,'جاري مطابقة الفواتير...');
     allTxns=result.transactions||[];matchAllPayments();setProgress(100,'اكتمل التحليل ✓');renderReview(result);
-  }catch(e){log('خطأ: '+e.message,'warn');allTxns=fallbackParse(bankText);renderReview({bank:'الراجحي',transactions:allTxns});}
+  }catch(e){log('خطأ: '+e.message,'warn');allTxns=[];renderReview({bank:'الراجحي',transactions:[]});}
 }
+
 async function loadDaftraInvoices(){
   try{
     const r=await fetch(`${PROXY}/open-invoices`);const d=await r.json();
     return (d.invoices||[]).map(i=>{const inv=i.Invoice||i;return{id:inv.id,no:inv.no||inv.invoice_number,client:inv.client_business_name||inv.client_name||'',total:parseFloat(inv.summary_total||0),unpaid:parseFloat(inv.summary_unpaid||0),date:inv.date||''};}).filter(i=>i.unpaid>0);
   }catch(e){return[];}
 }
+
 function matchAllPayments(){
   invoiceBalances={};
   allInvoices.forEach(inv=>{invoiceBalances[inv.id]={invoiceNo:inv.no,client:inv.client,total:inv.total,unpaid:inv.unpaid,paidSoFar:0,linkedTxns:[]};});
@@ -287,7 +386,7 @@ function matchAllPayments(){
     if(!txn._match){txn.daftra_action='waiting_list';txn._matchType='none';waitingList.push(txn);}
   });
 }
-function fallbackParse(text){const lines=text.split('\n'),txns=[];const dr=/(\d{4}\/\d{2}\/\d{2}|\d{2}\/\d{2}\/\d{4})/;const ar=/[\d,]+\.\d{2}/g;lines.forEach(line=>{if(dr.test(line)&&ar.test(line)){const amounts=line.match(ar)||[];if(amounts.length>0)txns.push({date:(line.match(dr)||[''])[0],description:line.substring(0,60).trim(),amount:parseFloat(amounts[0].replace(/,/g,'')),direction:line.includes('دائن')?'in':'out',category:'other',daftra_action:'skip'});}});return txns.slice(0,100);}
+
 function renderReview(result){
   document.getElementById('screen-analysis').style.display='none';document.getElementById('screen-review').style.display='block';
   document.getElementById('step2').className='step done';document.getElementById('step3').className='step active';document.getElementById('action-bar').style.display='block';
@@ -310,7 +409,9 @@ function renderReview(result){
   if(waiting>0){document.getElementById('badge-waiting').classList.add('orange');document.getElementById('tab-waiting').style.color='var(--orange)';}
   filtered=[...txns];renderAllTab(filtered);renderClientsTab();renderWaitingTab();updateSelCount();
 }
+
 function switchTab(tab){currentTab=tab;['all','clients','waiting'].forEach(t=>{document.getElementById('tab-'+t).className='tab'+(t===tab?' active':'');document.getElementById('panel-'+t).style.display=t===tab?'block':'none';});updateSelCount();}
+
 function renderAllTab(txns){
   const cats=[...new Set(allTxns.map(t=>t.category))];
   const catNames={client_payment:'دفعات عملاء',china_supplier:'الصين',local_supplier:'موردون',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',transportation:'نقل',loan:'قرض',other:'أخرى'};
@@ -320,7 +421,9 @@ function renderAllTab(txns){
   cats.forEach(c=>{const cnt=allTxns.filter(t=>t.category===c).length;fh+=`<button class="filter-btn" onclick="filterTxns('${c}',this)">${catNames[c]||c} (${cnt})</button>`;});
   document.getElementById('filters').innerHTML=fh;renderTable(txns);
 }
+
 function filterTxns(type,btn){document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('on'));btn.classList.add('on');if(type==='all')filtered=[...allTxns];else if(type==='to_record')filtered=allTxns.filter(t=>t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list');else filtered=allTxns.filter(t=>t.category===type);renderTable(filtered);}
+
 function renderTable(txns){
   const cc={client_payment:'cat-client',china_supplier:'cat-china',local_supplier:'cat-supplier',salary:'cat-salary',rent:'cat-rent',personal:'cat-personal',government:'cat-other',bank_fee:'cat-fee',transportation:'cat-other',loan:'cat-other',other:'cat-other'};
   const cn={client_payment:'دفعة عميل',china_supplier:'صين',local_supplier:'مورد',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',transportation:'نقل',loan:'قرض',other:'أخرى'};
@@ -336,6 +439,7 @@ function renderTable(txns){
     return `<tr><td><input type="checkbox" class="chk txn-chk" data-idx="${i}" ${chk} onchange="updateSelCount()"></td><td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td><td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}</td><td><span class="cat-badge ${cls}">${cn[t.category]||t.category}</span></td><td class="${amtCls}" style="text-align:left;white-space:nowrap">${sign} ${fmt(t.amount)}</td><td>${matchHtml}</td></tr>`;
   }).join('');
 }
+
 function renderClientsTab(){
   const clients=allTxns.filter(t=>t.direction==='in'&&t.category==='client_payment');
   document.getElementById('client-body').innerHTML=clients.map((t,i)=>{
@@ -346,6 +450,7 @@ function renderClientsTab(){
   }).join('');
   if(!clients.length)document.getElementById('client-body').innerHTML=`<tr><td colspan="5" style="text-align:center;padding:30px;color:var(--muted)">لا توجد دفعات عملاء في هذا الكشف</td></tr>`;
 }
+
 function renderWaitingTab(){
   if(!waitingList.length){document.getElementById('waiting-list').innerHTML=`<div class="empty-state">🎉 لا توجد مدفوعات في قائمة الانتظار!</div>`;return;}
   document.getElementById('waiting-list').innerHTML=waitingList.map((txn,wi)=>{
@@ -377,10 +482,7 @@ function renderWaitingTab(){
 }
 
 let waitingSelections={};
-function selectInvOption(wi,invId,el){
-  document.querySelectorAll(`#inv-list-${wi} .inv-option`).forEach(e=>e.classList.remove('selected'));
-  el.classList.add('selected');waitingSelections[wi]=invId;document.getElementById('btn-link-'+wi).disabled=false;
-}
+function selectInvOption(wi,invId,el){document.querySelectorAll(`#inv-list-${wi} .inv-option`).forEach(e=>e.classList.remove('selected'));el.classList.add('selected');waitingSelections[wi]=invId;document.getElementById('btn-link-'+wi).disabled=false;}
 function linkWaiting(wi){
   const txn=waitingList[wi];const invId=waitingSelections[wi];const inv=allInvoices.find(i=>i.id==invId);
   if(!inv||!txn)return;
@@ -393,7 +495,6 @@ function linkWaiting(wi){
   document.getElementById('badge-waiting').textContent=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
   updateSelCount();
 }
-
 function previewManual(wi){
   const input=document.getElementById('manual-input-'+wi).value;
   const nos=input.split(',').map(s=>s.trim()).filter(Boolean);
@@ -405,7 +506,6 @@ function previewManual(wi){
   preview.innerHTML=`<div class="manual-found">✅ وجدت: ${found.map(i=>i.no+' ('+i.client+')').join(' + ')} — إجمالي: ${fmt(total)} SAR</div>`;
   btn.disabled=false;
 }
-
 function linkManual(wi){
   const txn=waitingList[wi];
   const input=document.getElementById('manual-input-'+wi).value;
@@ -422,13 +522,13 @@ function linkManual(wi){
   document.getElementById('badge-waiting').textContent=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
   updateSelCount();
 }
-
 function skipWaiting(wi){const txn=waitingList[wi];txn.daftra_action='skip';document.getElementById('waiting-card-'+wi).style.opacity='0.3';document.getElementById('badge-waiting').textContent=waitingList.filter(t=>t.daftra_action==='waiting_list').length;}
 function toggleAll(checked){document.querySelectorAll('.txn-chk').forEach(c=>c.checked=checked);updateSelCount();}
 function toggleClients(checked){document.querySelectorAll('.client-chk').forEach(c=>c.checked=checked);updateSelCount();}
 function selectRelevant(){document.querySelectorAll('.txn-chk').forEach((c,i)=>{const txn=filtered[parseInt(c.dataset.idx)];c.checked=txn&&txn.daftra_action!=='skip'&&txn.daftra_action!=='waiting_list';});updateSelCount();}
 function updateSelCount(){const cnt=document.querySelectorAll('.txn-chk:checked, .client-chk:checked').length;document.getElementById('sel-count').textContent=cnt;document.getElementById('post-btn').disabled=cnt===0;}
 function fmt(n){return Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
 async function postToDaftra(){
   const btn=document.getElementById('post-btn');btn.disabled=true;btn.textContent='⏳ جاري التسجيل...';
   const allChecked=[...document.querySelectorAll('.txn-chk:checked'),...document.querySelectorAll('.client-chk:checked')];
@@ -441,11 +541,11 @@ async function postToDaftra(){
       if(txn.daftra_action==='match_invoice'&&txn._match){
         const matches=Array.isArray(txn._match)?txn._match:[txn._match];
         for(const m of matches){
-          const r=await fetch(`${PROXY}/record-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invoice_id:m.id,amount:txn.amount,payment_method:'bank_transfer',date:txn.date,notes:txn.description})});
+          const r=await fetch(`${PROXY}/record-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({invoice_id:m.id,amount:txn.amount,date:txn.date,notes:txn.description})});
           if(r.ok)success++;else failed++;
         }
       }else if(txn.daftra_action==='record_expense'){
-        const r=await fetch(`${PROXY}/expenses`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Expense:{amount:txn.amount,date:txn.date,description:txn.description,notes:txn.notes||''}})});
+        const r=await fetch(`${PROXY}/record-expense`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount:txn.amount,date:txn.date,description:txn.description,category:txn.category,notes:txn.notes||''})});
         if(r.ok)success++;else failed++;
       }else{success++;}
     }catch(e){failed++;}
