@@ -15,6 +15,19 @@ CLIENT_ALIASES = {
     'خدمات متكاملة': 'الخدمات التجارية المتكاملة',
 }
 
+# Known bank account numbers -> client name in daftra
+ACCOUNT_TO_CLIENT = {
+    '12900608016890598': 'ريميندر',
+}
+
+# Daftra expense category IDs for salaries/transportation
+EXPENSE_CATEGORIES = {
+    'salary': '22',        # رواتب - update this ID if different in your Daftra
+    'transportation': '23', # نقل
+    'rent': '24',           # إيجار
+    'other': '1',           # مصروفات أخرى
+}
+
 def cors(r):
     r.headers['Access-Control-Allow-Origin'] = '*'
     r.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
@@ -48,20 +61,27 @@ def get_open_invoices():
         return []
 
 def normalize_name(name):
-    """Normalize Arabic/English name for fuzzy matching"""
     name = (name or '').lower().strip()
     for alias, canonical in CLIENT_ALIASES.items():
         if alias in name:
             return canonical.lower()
     return name
 
+def extract_account_from_text(text):
+    """Extract account number from bank transaction text"""
+    m = re.search(r'(?:FRACCT|TOACCT|FROMACCT)[/\\](\d{10,})', text or '')
+    return m.group(1) if m else None
+
 def client_name_matches(party, inv_client):
-    """Check if bank party name matches invoice client name"""
     if not party or not inv_client:
         return False
+    # Check account number first
+    acc = extract_account_from_text(party)
+    if acc and acc in ACCOUNT_TO_CLIENT:
+        canonical = ACCOUNT_TO_CLIENT[acc].lower()
+        return canonical in normalize_name(inv_client)
     p = normalize_name(party)
     c = normalize_name(inv_client)
-    # Check if any significant word (4+ chars) from party appears in client or vice versa
     p_words = [w for w in p.split() if len(w) >= 4]
     c_words = [w for w in c.split() if len(w) >= 4]
     for pw in p_words:
@@ -72,15 +92,17 @@ def client_name_matches(party, inv_client):
             return True
     return False
 
-def match_payment(amount, open_invoices, party=''):
-    """Match payment to invoice(s) — prioritize client name match, then amount"""
-    
-    # Filter invoices by client name if party is known
-    client_invoices = [inv for inv in open_invoices if client_name_matches(party, inv.get('Invoice', {}).get('client_business_name', ''))]
+def match_payment(amount, open_invoices, party='', description=''):
+    combined_text = f"{party} {description}"
+    # Check if account number maps to a known client
+    acc = extract_account_from_text(combined_text)
+    if acc and acc in ACCOUNT_TO_CLIENT:
+        party = ACCOUNT_TO_CLIENT[acc]
+
+    client_invoices = [inv for inv in open_invoices if client_name_matches(combined_text, inv.get('Invoice', {}).get('client_business_name', ''))]
     search_pools = [client_invoices, open_invoices] if client_invoices else [open_invoices]
 
     for pool in search_pools:
-        # 1. Single invoice exact/close match
         matches = []
         for inv in pool:
             inv_data = inv.get('Invoice', {})
@@ -101,7 +123,6 @@ def match_payment(amount, open_invoices, party=''):
         if matches:
             return matches
 
-        # 2. Combined two invoices
         for i in range(len(pool)):
             for j in range(i+1, len(pool)):
                 inv1 = pool[i].get('Invoice', {})
@@ -117,7 +138,6 @@ def match_payment(amount, open_invoices, party=''):
                         'amount': combined,
                         'confidence': 'combined'
                     }]
-
     return []
 
 @app.route('/bank-sync')
@@ -197,6 +217,64 @@ def record_payment():
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
+@app.route('/record-expense', methods=['POST', 'OPTIONS'])
+def record_expense():
+    """Record expense with correct category based on transaction type"""
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    data = request.get_json()
+    amount = data.get('amount')
+    date = data.get('date')
+    description = data.get('description', '')
+    category = data.get('category', 'other')  # salary, transportation, rent, other
+    notes = data.get('notes', '')
+
+    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
+
+    # First get expense categories from Daftra to find correct ID
+    try:
+        cat_resp = requests.get(f"{DAFTRA_BASE}/expense_categories", headers=headers, timeout=30)
+        cat_data = cat_resp.json()
+        categories = cat_data.get('data', [])
+
+        # Find matching category
+        category_id = None
+        category_keywords = {
+            'salary': ['راتب', 'رواتب', 'salary', 'salaries', 'payroll'],
+            'transportation': ['نقل', 'مواصلات', 'transport'],
+            'rent': ['إيجار', 'ايجار', 'rent'],
+        }
+
+        if category in category_keywords:
+            keywords = category_keywords[category]
+            for cat in categories:
+                cat_item = cat.get('ExpenseCategory', cat)
+                cat_name = (cat_item.get('name', '') or '').lower()
+                if any(kw.lower() in cat_name for kw in keywords):
+                    category_id = cat_item.get('id')
+                    break
+
+        payload = {
+            "Expense": {
+                "amount": float(amount),
+                "date": date,
+                "description": description,
+                "notes": notes
+            }
+        }
+        if category_id:
+            payload["Expense"]["expense_category_id"] = str(category_id)
+
+        resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, json=payload, timeout=30)
+        resp_data = resp.json()
+
+        if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
+            return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
+        return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
+
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
 @app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
 def analyze_bank():
     if request.method == 'OPTIONS':
@@ -209,7 +287,7 @@ def analyze_bank():
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     open_invoices = get_open_invoices()
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia. IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as عملية تحويل داخلية which does NOT mean internal company transfer. If money is coming IN, it is likely a client_payment. If money is going OUT, classify based on who receives it. Known employees always classify as salary: SALAMUDDIN is Installation Manager Riyadh, SIKANDAR is Installation Manager Dammam, TAUFEEK or TAUFEEQ is Driver, YAZEEN or يزن is Branch Manager Qassim, MALIK or مالك is Freelance Installer Qassim. Known transportation always classify as transportation: IBRAHIM or ابراهيم is Truck or Freight, عبدالحسيب is Internal delivery driver Riyadh and Eastern Province. Known local suppliers always classify as local_supplier: شركة مصنع واهوي للرخام, شركة قمم الشام للتجارة, شركة السنا للرخام والسراميك, مؤسسة جنى مارين للتجارة. Known clients always classify as client_payment when money comes IN: مؤسسة ريميندر, مؤسسة مهجة التجارية, MISHARY ADEL ALZAMIL, SHARAF AMER ALTALHI, هشام المسيند, نور البنعلى, اسامه زيد العنزي, وليد الجحيش, سفيان زامل الزامل, مؤسسة الخدمات التجارية المتكاملة. Owner personal draws classify as personal: AMRO or عمرو الحلبي is Owner, اميرة is Owner mother. Other: سليمان المهوس is rent Buraydah Branch, مؤسسة جي مارين للتجارة is rent Riyadh Branch, GBOUEO02 is china_supplier, Traffic violations is government, LOANFLEET is loan, Mudud payroll is salary, نقاط بيع MALI QURTOBA is client_payment, Bank fees is bank_fee. Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
+    prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia. IMPORTANT BANKING RULE: AlRajhi Bank labels transfers between AlRajhi accounts as عملية تحويل داخلية which does NOT mean internal company transfer. If money is coming IN, it is likely a client_payment. If money is going OUT, classify based on who receives it. Known employees always classify as salary: SALAMUDDIN is Installation Manager Riyadh, SIKANDAR is Installation Manager Dammam, TAUFEEK or TAUFEEQ is Driver, YAZEEN or يزن is Branch Manager Qassim, MALIK or مالك is Freelance Installer Qassim. Known transportation always classify as transportation: IBRAHIM or ابراهيم is Truck or Freight, عبدالحسيب is Internal delivery driver Riyadh and Eastern Province. Known local suppliers always classify as local_supplier: شركة مصنع واهوي للرخام, شركة قمم الشام للتجارة, شركة السنا للرخام والسراميك, مؤسسة جنى مارين للتجارة. Known clients always classify as client_payment when money comes IN: مؤسسة ريميندر, مؤسسة مهجة التجارية, MISHARY ADEL ALZAMIL, SHARAF AMER ALTALHI, هشام المسيند, نور البنعلى, اسامه زيد العنزي, وليد الجحيش, سفيان زامل الزامل, مؤسسة الخدمات التجارية المتكاملة. Account number 12900608016890598 is always مؤسسة ريميندر — classify as client_payment. Owner personal draws classify as personal: AMRO or عمرو الحلبي is Owner, اميرة is Owner mother. Other: سليمان المهوس is rent Buraydah Branch, مؤسسة جي مارين للتجارة is rent Riyadh Branch, GBOUEO02 is china_supplier, Traffic violations is government, LOANFLEET is loan, Mudud payroll is salary, نقاط بيع MALI QURTOBA is client_payment, Bank fees is bank_fee. Analyze this bank statement and classify each transaction. Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, other. Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"record_payment or record_expense or skip","notes":""}]}"""
     try:
         msg = client.messages.create(model="claude-haiku-4-5-20251001", max_tokens=8000, messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:8000]}])
         raw = msg.content[0].text
@@ -218,8 +296,9 @@ def analyze_bank():
         transactions = result.get('transactions', [])
         for tx in transactions:
             if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
-                party = tx.get('party', '') or tx.get('description', '')
-                matches = match_payment(float(tx.get('amount', 0)), open_invoices, party)
+                party = tx.get('party', '') or ''
+                description = tx.get('description', '') or ''
+                matches = match_payment(float(tx.get('amount', 0)), open_invoices, party, description)
                 tx['invoice_matches'] = matches
                 tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
         result['transactions'] = transactions
