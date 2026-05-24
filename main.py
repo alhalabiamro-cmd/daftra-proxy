@@ -534,9 +534,9 @@ Return ONLY valid JSON:
 
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=16000,
-            messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:100000]}]
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8000,
+            messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:15000]}]
         )
         raw = msg.content[0].text
         m = re.search(r'\{[\s\S]*\}', raw)
