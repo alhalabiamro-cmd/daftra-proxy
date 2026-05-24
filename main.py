@@ -18,6 +18,8 @@ CLIENT_ALIASES = {
     'الجبر': 'مؤسسة الجبر',
     'بيتي النيق': 'شركة بيتي النيق للتجارة',
     'بيتي': 'شركة بيتي النيق للتجارة',
+    'الرقيبة': 'فارس الرقيبة',
+    'فارس علي': 'فارس الرقيبة',
 }
 
 EMPLOYEE_IDS = {
@@ -203,7 +205,7 @@ PERSONAL (owner draws): عمرو الحلبي(2229429275), اميرة(2229429267
 TRANSPORTATION: عبدالحسيب, عمرو بدوي, IBRAHIM
 LOCAL SUPPLIERS: واهوي, أسوار الخليج, اسوار الخليج, السنا للرخام, الفرات للرخام, جنى مارين, قمم الشام
 CHINA SUPPLIERS: GBOUEO02, SHENYANG, China/CNY transfers
-CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, ماهر حباب, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH
+CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, ماهر حباب, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, فارس علي سليمان الرقيبة, الرقيبة
 OTHER: سليمان المهوس=rent Buraydah, جي مارين=rent Riyadh, LOANFLEET=loan, Mudud=salary, نقاط بيع MALI QURTOBA=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate Renew Iqama=government
 
 NOTES: always include ID numbers, names, references. Example: "تجديد إقامة - بلال جلال غانم - ID: 2155703453"
@@ -232,6 +234,10 @@ def _run_analysis(job_id, bank_text):
         open_purchases = get_open_invoices('purchase') if needs_purchases else []
 
         for tx in transactions:
+            # Force all incoming payments to client_payment
+            if tx.get('direction') == 'in' and tx.get('category') != 'client_payment':
+                tx['category'] = 'client_payment'
+                tx['daftra_action'] = 'match_invoice'
             amt = float(tx.get('amount', 0))
             party = tx.get('party', '') or ''
             description = tx.get('description', '') or ''
