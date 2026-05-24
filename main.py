@@ -439,6 +439,126 @@ Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transact
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
+EXCLUDE_KEYWORDS = ['ديزل', 'محروقات', 'diesel', 'fuel']
+CLEANUP_CUTOFF = '2026-04-01'
+
+def should_exclude(text):
+    text = (text or '').lower()
+    return any(kw.lower() in text for kw in EXCLUDE_KEYWORDS)
+
+def fetch_all_pages(endpoint):
+    items = []
+    page = 1
+    while True:
+        r = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
+                         params={'limit': 50, 'page': page}, timeout=30)
+        data = r.json().get('data', [])
+        if not data:
+            break
+        items.extend(data)
+        if len(data) < 50:
+            break
+        page += 1
+    return items
+
+@app.route('/preview-deletions', methods=['GET', 'OPTIONS'])
+def preview_deletions():
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    try:
+        # Invoice payments
+        payments = fetch_all_pages('invoice_payments')
+        to_delete_payments = []
+        keep_payments = []
+        for p in payments:
+            ip = p.get('InvoicePayment', p)
+            date = ip.get('date', '')
+            notes = ip.get('notes', '') or ''
+            if date >= CLEANUP_CUTOFF:
+                if should_exclude(notes):
+                    keep_payments.append({'id': ip.get('id'), 'date': date, 'amount': ip.get('amount'), 'notes': notes[:50]})
+                else:
+                    to_delete_payments.append({'id': ip.get('id'), 'date': date, 'amount': ip.get('amount'), 'notes': notes[:50]})
+
+        # Expenses
+        expenses = fetch_all_pages('expenses')
+        to_delete_expenses = []
+        keep_expenses = []
+        for e in expenses:
+            exp = e.get('Expense', e)
+            date = exp.get('date', '')
+            desc = (exp.get('description', '') or '')
+            notes = (exp.get('notes', '') or '')
+            combined = f"{desc} {notes}"
+            if date >= CLEANUP_CUTOFF:
+                if should_exclude(combined):
+                    keep_expenses.append({'id': exp.get('id'), 'date': date, 'amount': exp.get('amount'), 'description': desc[:50]})
+                else:
+                    to_delete_expenses.append({'id': exp.get('id'), 'date': date, 'amount': exp.get('amount'), 'description': desc[:50]})
+
+        return cors(make_response(jsonify({
+            'to_delete': {
+                'invoice_payments': to_delete_payments,
+                'invoice_payments_count': len(to_delete_payments),
+                'expenses': to_delete_expenses,
+                'expenses_count': len(to_delete_expenses),
+                'total': len(to_delete_payments) + len(to_delete_expenses)
+            },
+            'to_keep': {
+                'invoice_payments': keep_payments,
+                'expenses': keep_expenses
+            }
+        }), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
+@app.route('/execute-deletions', methods=['POST', 'OPTIONS'])
+def execute_deletions():
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    try:
+        headers = {'APIKEY': APIKEY}
+        deleted_payments = 0
+        deleted_expenses = 0
+        errors = []
+
+        # Delete invoice payments
+        payments = fetch_all_pages('invoice_payments')
+        for p in payments:
+            ip = p.get('InvoicePayment', p)
+            date = ip.get('date', '')
+            notes = (ip.get('notes', '') or '')
+            if date >= CLEANUP_CUTOFF and not should_exclude(notes):
+                r = requests.delete(f"{DAFTRA_BASE}/invoice_payments/{ip.get('id')}", headers=headers, timeout=30)
+                if r.status_code in [200, 201, 204] or r.json().get('result') == 'successful':
+                    deleted_payments += 1
+                else:
+                    errors.append(f"payment {ip.get('id')}: {r.text[:50]}")
+
+        # Delete expenses
+        expenses = fetch_all_pages('expenses')
+        for e in expenses:
+            exp = e.get('Expense', e)
+            date = exp.get('date', '')
+            desc = (exp.get('description', '') or '')
+            notes = (exp.get('notes', '') or '')
+            combined = f"{desc} {notes}"
+            if date >= CLEANUP_CUTOFF and not should_exclude(combined):
+                r = requests.delete(f"{DAFTRA_BASE}/expenses/{exp.get('id')}", headers=headers, timeout=30)
+                if r.status_code in [200, 201, 204] or r.json().get('result') == 'successful':
+                    deleted_expenses += 1
+                else:
+                    errors.append(f"expense {exp.get('id')}: {r.text[:50]}")
+
+        return cors(make_response(jsonify({
+            'deleted_payments': deleted_payments,
+            'deleted_expenses': deleted_expenses,
+            'total_deleted': deleted_payments + deleted_expenses,
+            'errors': errors
+        }), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
 @app.route('/<path:endpoint>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 def proxy(endpoint):
     if request.method == 'OPTIONS':
