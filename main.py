@@ -347,12 +347,17 @@ def record_expense():
         # Use chart-of-accounts ID directly
         account_id = EXPENSE_ACCOUNT_ID.get(category, '54')
 
+        # Build rich notes: combine original notes + description details
+        rich_notes = description or ''
+        if notes and notes != description:
+            rich_notes = f"{description} | {notes}" if description else notes
+
         payload = {
             "Expense": {
                 "amount": float(amount),
                 "date": date,
                 "description": description,
-                "notes": notes,
+                "notes": rich_notes,
                 "expense_category_id": account_id
             }
         }
@@ -406,13 +411,15 @@ For daftra_action use:
 
 Analyze this bank statement and classify each transaction.
 Categories: client_payment, china_supplier, local_supplier, salary, rent, personal, government, bank_fee, transportation, loan, other.
+For the "notes" field: always include full transaction details — ID numbers, reference numbers, employee names, invoice numbers, or any specific identifiers from the transaction. For example: "تجديد إقامة - ID: 2155703453" or "راتب أبريل - SIKANDAR GUPTA" or "إيجار فرع بريدة - أبريل 2026".
+
 Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"match_invoice or match_purchase_invoice or record_expense or skip","notes":""}]}"""
 
     try:
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=8000,
-            messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:8000]}]
+            max_tokens=16000,
+            messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:100000]}]
         )
         raw = msg.content[0].text
         m = re.search(r'\{[\s\S]*\}', raw)
