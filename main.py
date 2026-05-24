@@ -106,7 +106,7 @@ def cors(r):
 def get_open_invoices(invoice_type='sales'):
     try:
         all_invoices, endpoint = [], 'invoices' if invoice_type == 'sales' else 'purchase_invoices'
-        for status in ['0', '2']:
+        for status in ['0', '2', '3']:
             page = 1
             while True:
                 resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
@@ -217,7 +217,7 @@ def _run_analysis(job_id, bank_text):
         msg = ai_client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=8000,
-            messages=[{"role": "user", "content": PROMPT + "\n\n" + bank_text[:15000]}]
+            messages=[{"role": "user", "content": PROMPT + "\n\n" + bank_text[:50000]}]
         )
         raw = msg.content[0].text
         m = re.search(r'\{[\s\S]*\}', raw)
