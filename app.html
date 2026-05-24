@@ -524,15 +524,16 @@ async function previewManual(wi){
   const preview=document.getElementById('manual-preview-'+wi);
   const btn=document.getElementById('btn-manual-'+wi);
   // First try local list
-  let found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0')||String(inv.id)===no)).filter(Boolean);
+  let found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0')||String(inv.id)===no||inv.no===String(parseInt(no)).padStart(6,'0'))).filter(Boolean);
   // If not found locally, fetch from Daftra directly
   if(found.length===0){
     preview.innerHTML='<div style="color:var(--muted);font-size:11px">جاري البحث...</div>';
     try{
       for(const no of nos){
-        const r=await fetch(`${PROXY}/invoices/${no}`);
+        // Search by invoice number using dedicated endpoint
+        const r=await fetch(`${PROXY}/find-invoice/${encodeURIComponent(no)}`);
         const d=await r.json();
-        const inv=d.data?.Invoice||d.data;
+        const inv=d.invoice;
         if(inv&&inv.id){
           const unpaid=parseFloat(inv.summary_unpaid||0);
           const total=parseFloat(inv.summary_total||0);
