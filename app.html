@@ -517,14 +517,37 @@ function linkWaiting(wi){
   document.getElementById('badge-waiting').textContent=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
   updateSelCount();
 }
-function previewManual(wi){
+async function previewManual(wi){
   const input=document.getElementById('manual-input-'+wi).value;
   const nos=input.split(',').map(s=>s.trim()).filter(Boolean);
-  const found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0'))).filter(Boolean);
+  if(!nos.length){document.getElementById('manual-preview-'+wi).innerHTML='';document.getElementById('btn-manual-'+wi).disabled=true;return;}
   const preview=document.getElementById('manual-preview-'+wi);
   const btn=document.getElementById('btn-manual-'+wi);
-  if(found.length===0){preview.innerHTML=nos.length?`<div class="manual-notfound">لم يتم إيجاد الفواتير</div>`:'';btn.disabled=true;return;}
-  const total=found.reduce((s,inv)=>{const bal=invoiceBalances[inv.id];return s+(bal.unpaid-bal.paidSoFar);},0);
+  // First try local list
+  let found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0')||String(inv.id)===no)).filter(Boolean);
+  // If not found locally, fetch from Daftra directly
+  if(found.length===0){
+    preview.innerHTML='<div style="color:var(--muted);font-size:11px">جاري البحث...</div>';
+    try{
+      for(const no of nos){
+        const r=await fetch(`${PROXY}/invoices/${no}`);
+        const d=await r.json();
+        const inv=d.data?.Invoice||d.data;
+        if(inv&&inv.id){
+          const unpaid=parseFloat(inv.summary_unpaid||0);
+          const total=parseFloat(inv.summary_total||0);
+          const remaining=unpaid>0?unpaid:total;
+          found.push({id:inv.id,no:inv.no||no,client:inv.client_business_name||'',unpaid:remaining,total:total});
+          // Add to invoiceBalances if not there
+          if(!invoiceBalances[inv.id]){invoiceBalances[inv.id]={invoiceNo:inv.no||no,client:inv.client_business_name||'',total:total,unpaid:remaining,paidSoFar:0,linkedTxns:[]};}
+          // Add to allInvoices if not there
+          if(!allInvoices.find(i=>i.id==inv.id)){allInvoices.push({id:inv.id,no:inv.no||no,client:inv.client_business_name||'',total:total,unpaid:remaining});}
+        }
+      }
+    }catch(e){console.error(e);}
+  }
+  if(found.length===0){preview.innerHTML=`<div class="manual-notfound">لم يتم إيجاد الفواتير</div>`;btn.disabled=true;return;}
+  const total=found.reduce((s,inv)=>{const bal=invoiceBalances[inv.id];return s+(bal?(bal.unpaid-bal.paidSoFar):inv.unpaid||0);},0);
   preview.innerHTML=`<div class="manual-found">✅ وجدت: ${found.map(i=>i.no+' ('+i.client+')').join(' + ')} — إجمالي: ${fmt(total)} SAR</div>`;
   btn.disabled=false;
 }
