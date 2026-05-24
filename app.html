@@ -302,19 +302,36 @@ async function extractExcelText(file){
         lines.push('Date | Transaction_Type | Party_Details | Debit | Credit | Balance');
         lines.push('---');
         rows.slice(dataStart).forEach(row=>{
-          if(!row||row.length<10)return;
-          const party=String(row[2]||'').trim();
-          const txType=String(row[3]||'').trim();
-          const balance=String(row[6]||'').trim();
-          const rawDate=row[9];
+          if(!row||row.length<8)return;
+          let party,txType,balance,rawDate,debit,credit;
+          const col11=String(row[11]||'');
+          const isNewFormat=col11.match(/\d{2}\/\d{2}\/\d{4}/)||col11.match(/\d{4}-\d{2}-\d{2}/);
+          if(isNewFormat){
+            balance=String(row[6]||'').trim();
+            debit=String(row[7]||'').trim();
+            credit=String(row[8]||'').trim();
+            txType=String(row[9]||'').trim();
+            party=String(row[10]||'').trim();
+            rawDate=row[11];
+          } else {
+            party=String(row[2]||'').trim();
+            txType=String(row[3]||'').trim();
+            balance=String(row[6]||'').trim();
+            rawDate=row[9];
+            debit=String(row[10]||'').trim();
+            credit=String(row[11]||'').trim();
+          }
           let date='';
           if(rawDate instanceof Date){date=rawDate.toISOString().split('T')[0];}
-          else if(rawDate){date=String(rawDate).split(' ')[0]||'';}
-          const debit=String(row[10]||'').trim();
-          const credit=String(row[11]||'').trim();
+          else if(rawDate){
+            const ds=String(rawDate).trim();
+            const m=ds.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+            if(m){date=m[3]+'-'+m[2]+'-'+m[1];}
+            else{date=ds.split(' ')[0]||'';}
+          }
           if(!date&&!party&&!debit&&!credit)return;
           if(!debit&&!credit)return;
-          lines.push(`${date} | ${txType} | ${party} | DEBIT:${debit} | CREDIT:${credit} | BAL:${balance}`);
+          lines.push(date+' | '+txType+' | '+party+' | DEBIT:'+debit+' | CREDIT:'+credit+' | BAL:'+balance);
         });
         resolve(lines.join('\n'));
       }catch(err){reject(err);}
@@ -334,9 +351,26 @@ async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
   const textChunk=bankText.length>100000?bankText.substring(0,100000):bankText;
   try{
-    const response=await fetch(`${PROXY}/analyze-bank`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:textChunk})});
+    // Step 1: Start async job
+    const startResp=await fetch(`${PROXY}/analyze-bank`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:textChunk})});
+    const startData=await startResp.json();
+    if(startData.error)throw new Error(startData.error);
+    const jobId=startData.job_id;
+    if(!jobId)throw new Error('No job ID returned');
+    log('جاري التحليل... قد يستغرق دقيقة أو دقيقتين','info');
+    setProgress(50,'الذكاء الاصطناعي يعمل...');
+    // Step 2: Poll for result
+    let data=null;
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,5000));
+      const pollResp=await fetch(`${PROXY}/analysis-result/${jobId}`);
+      const pollData=await pollResp.json();
+      setProgress(50+i,`جاري التحليل... ${i*5} ثانية`);
+      if(pollData.status==='done'){data=pollData.result;break;}
+      if(pollData.status==='error')throw new Error(pollData.error||'Analysis failed');
+    }
+    if(!data)throw new Error('Analysis timed out after 5 minutes');
     setProgress(70,'جاري معالجة النتائج...');
-    const data=await response.json();if(data.error)throw new Error(data.error);
     const result=typeof data==='object'?data:JSON.parse(data);
     bankPeriod=result.period||'';bankName=result.bank||'الراجحي';
     log('تم اكتشاف '+(result.transactions?.length||0)+' معاملة','ok');
