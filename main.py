@@ -106,7 +106,7 @@ def cors(r):
 def get_open_invoices(invoice_type='sales'):
     try:
         all_invoices, endpoint = [], 'invoices' if invoice_type == 'sales' else 'purchase_invoices'
-        for status in ['0', '2', '3']:
+        for status in ['0', '1', '2', '3', '4']:
             page = 1
             while True:
                 resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
