@@ -533,7 +533,7 @@ Return ONLY valid JSON:
 
     try:
         msg = client.messages.create(
-            model="claude-sonnet-4-5",
+           claude-haiku-4-5-20251001
             max_tokens=16000,
             messages=[{"role": "user", "content": prompt + "\n\n" + bank_text[:100000]}]
         )
