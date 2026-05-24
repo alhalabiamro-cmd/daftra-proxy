@@ -1,11 +1,15 @@
 from flask import Flask, request, jsonify, make_response, send_file
-import requests, os, anthropic, json, re
+import requests, os, anthropic, json, re, threading, uuid
 
 app = Flask(__name__)
 
 DAFTRA_BASE = 'https://maealequrtoba.daftra.com/api2'
 APIKEY = os.environ.get('APIKEY', 'c4c035341dbe1da1531b227d89f6e2f481252766')
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
+
+
+# In-memory job store for async analysis
+_jobs = {}
 
 CLIENT_ALIASES = {
     'مهجة': 'ريميندر',
@@ -466,21 +470,13 @@ def execute_deletions():
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
-@app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
-def analyze_bank():
-    if request.method == 'OPTIONS':
-        return cors(make_response('', 200))
-    data = request.get_json()
-    bank_text = data.get('text', '')
-    if not bank_text:
-        return cors(make_response(jsonify({'error': 'No text provided'}), 400))
-    if not ANTHROPIC_KEY:
-        return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-    # Fetch invoices after AI analysis
-    open_sales = []
-    open_purchases = []
+def _run_analysis(job_id, bank_text):
+    """Run analysis in background thread"""
+    try:
+        _jobs[job_id] = {'status': 'running'}
+        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        open_sales = []
+        open_purchases = []
 
     prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
 
@@ -577,9 +573,34 @@ Return ONLY valid JSON:
                 tx['daftra_action'] = 'match_purchase_invoice' if matches else 'waiting_list_purchase'
 
         result['transactions'] = transactions
-        return cors(make_response(jsonify(result), 200))
+        _jobs[job_id] = {'status': 'done', 'result': result}
     except Exception as e:
-        return cors(make_response(jsonify({'error': str(e)}), 500))
+        _jobs[job_id] = {'status': 'error', 'error': str(e)}
+
+@app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
+def analyze_bank():
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    data = request.get_json()
+    bank_text = data.get('text', '')
+    if not bank_text:
+        return cors(make_response(jsonify({'error': 'No text provided'}), 400))
+    if not ANTHROPIC_KEY:
+        return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {'status': 'pending'}
+    t = threading.Thread(target=_run_analysis, args=(job_id, bank_text), daemon=True)
+    t.start()
+    return cors(make_response(jsonify({'job_id': job_id, 'status': 'pending'}), 200))
+
+@app.route('/analysis-result/<job_id>', methods=['GET', 'OPTIONS'])
+def analysis_result(job_id):
+    if request.method == 'OPTIONS':
+        return cors(make_response('', 200))
+    job = _jobs.get(job_id)
+    if not job:
+        return cors(make_response(jsonify({'status': 'not_found'}), 404))
+    return cors(make_response(jsonify(job), 200))
 
 @app.route('/<path:endpoint>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 def proxy(endpoint):
