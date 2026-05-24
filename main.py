@@ -403,6 +403,31 @@ def execute_deletions():
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
+@app.route('/find-invoice/<invoice_no>', methods=['GET', 'OPTIONS'])
+def find_invoice(invoice_no):
+    """Find invoice by number (no field) or ID"""
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    try:
+        # Try direct ID lookup first
+        r = requests.get(f"{DAFTRA_BASE}/invoices/{invoice_no}", headers={'APIKEY': APIKEY}, timeout=15)
+        data = r.json()
+        inv = data.get('data', {})
+        if isinstance(inv, list): inv = inv[0] if inv else {}
+        inv_obj = inv.get('Invoice', inv)
+        if inv_obj.get('id'):
+            return cors(make_response(jsonify({'found': True, 'invoice': inv_obj}), 200))
+        # Try searching by invoice number
+        search = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY},
+                              params={'no': invoice_no, 'limit': 5}, timeout=15)
+        results = search.json().get('data', [])
+        for item in results:
+            i = item.get('Invoice', item)
+            if i.get('no') == invoice_no or i.get('no') == invoice_no.lstrip('0') or str(i.get('id')) == invoice_no:
+                return cors(make_response(jsonify({'found': True, 'invoice': i}), 200))
+        return cors(make_response(jsonify({'found': False}), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
 @app.route('/<path:endpoint>', methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 def proxy(endpoint):
     if request.method == 'OPTIONS': return cors(make_response('', 200))
