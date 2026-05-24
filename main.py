@@ -477,9 +477,10 @@ def analyze_bank():
     if not ANTHROPIC_KEY:
         return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
 
-    open_sales = get_open_invoices('sales')
-    open_purchases = get_open_invoices('purchase')
     client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    # Fetch invoices after AI analysis
+    open_sales = []
+    open_purchases = []
 
     prompt = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
 
@@ -542,12 +543,18 @@ Return ONLY valid JSON:
         result = json.loads(m.group() if m else raw)
         transactions = result.get('transactions', [])
 
+        # Load invoices only if needed
+        needs_sales = any(t.get('direction') == 'in' and t.get('category') == 'client_payment' for t in transactions)
+        needs_purchases = any(t.get('direction') == 'out' and t.get('category') in ['local_supplier', 'china_supplier'] for t in transactions)
+        if needs_sales:
+            open_sales = get_open_invoices('sales')
+        if needs_purchases:
+            open_purchases = get_open_invoices('purchase')
+
         for tx in transactions:
             amt = float(tx.get('amount', 0))
             party = tx.get('party', '') or ''
             description = tx.get('description', '') or ''
-
-            # تحقق من رقم الهوية في النص
             combined = f"{party} {description}"
             emp_id = extract_id_from_text(combined)
             if emp_id and emp_id in EMPLOYEE_IDS:
