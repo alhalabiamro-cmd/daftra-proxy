@@ -332,7 +332,7 @@ async function extractPDFText(file){
 
 async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
-  const textChunk=bankText.length>18000?bankText.substring(0,18000):bankText;
+  const textChunk=bankText.length>100000?bankText.substring(0,100000):bankText;
   try{
     const response=await fetch(`${PROXY}/analyze-bank`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:textChunk})});
     setProgress(70,'جاري معالجة النتائج...');
