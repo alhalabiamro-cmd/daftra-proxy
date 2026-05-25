@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, make_response, send_file
-import requests, os, anthropic, json, re, threading, uuid
+import requests, os, anthropic, json, re, threading, uuid, time
 
 app = Flask(__name__)
 
@@ -8,6 +8,23 @@ APIKEY = os.environ.get('APIKEY', 'c4c035341dbe1da1531b227d89f6e2f481252766')
 ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 _jobs = {}
+
+def _job_path(job_id):
+    return f"/tmp/job_{job_id}.json"
+
+def _save_job(job_id, data):
+    try:
+        with open(_job_path(job_id), 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Save job error: {e}")
+
+def _load_job(job_id):
+    try:
+        with open(_job_path(job_id), encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return None
 
 CLIENT_ALIASES = {
     'مهجة': 'ريميندر', 'reminder': 'ريميندر',
@@ -346,11 +363,11 @@ def _do_analysis(bank_text):
 # ✅ Keep async job system for backward compat but also support sync
 def _run_analysis(job_id, bank_text):
     try:
-        _jobs[job_id] = {'status': 'running'}
+        _save_job(job_id, {'status': 'running'})
         result = _do_analysis(bank_text)
-        _jobs[job_id] = {'status': 'done', 'result': result}
+        _save_job(job_id, {'status': 'done', 'result': result})
     except Exception as e:
-        _jobs[job_id] = {'status': 'error', 'error': str(e)}
+        _save_job(job_id, {'status': 'error', 'error': str(e)})
 
 @app.route('/bank-sync')
 def bank_sync():
@@ -391,14 +408,14 @@ def analyze_bank():
     if not bank_text: return cors(make_response(jsonify({'error': 'No text provided'}), 400))
     if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {'status': 'pending'}
+    _save_job(job_id, {'status': 'pending'})
     threading.Thread(target=_run_analysis, args=(job_id, bank_text), daemon=True).start()
     return cors(make_response(jsonify({'job_id': job_id, 'status': 'pending'}), 200))
 
 @app.route('/analysis-result/<job_id>', methods=['GET', 'OPTIONS'])
 def analysis_result(job_id):
     if request.method == 'OPTIONS': return cors(make_response('', 200))
-    job = _jobs.get(job_id)
+    job = _load_job(job_id)
     if not job: return cors(make_response(jsonify({'status': 'not_found'}), 404))
     return cors(make_response(jsonify(job), 200))
 
