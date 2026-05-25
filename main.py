@@ -99,9 +99,13 @@ EXPENSE_CATEGORY_ID = {
     'personal': '24',
     'loan': '10',
     'other': '24',
+    'manufacturing': '1',
     'utilities': '27',
     'internet': '9',
 }
+
+# Categories that include 15% VAT (tax_id=1)
+VAT_CATEGORIES = {'utilities', 'internet', 'bank_fee', 'manufacturing'}
 
 VENDOR_NAMES = {
     'بيتي النيق': {'supplier_name': 'بيتي النيق', 'daftra_action': 'match_purchase_invoice'},
@@ -494,14 +498,17 @@ def record_expense():
     rich_notes = f"{description} | {notes}" if notes and notes != description else (description or notes)
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
     try:
+        expense_payload = {
+            "amount": float(amount),
+            "date": date,
+            "note": rich_notes,
+            "expense_category_id": expense_category_id,
+            "treasury_id": "3"
+        }
+        if category in VAT_CATEGORIES:
+            expense_payload["ExpenseTax"] = [{"tax_id": "1", "tax_amount": round(float(amount) * 0.15, 2)}]
         resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, timeout=30,
-            json={"Expense": {
-                "amount": float(amount),
-                "date": date,
-                "note": rich_notes,
-                "expense_category_id": expense_category_id,
-                "treasury_id": "3"
-            }})
+            json={"Expense": expense_payload})
         resp_data = resp.json()
         if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
             return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
