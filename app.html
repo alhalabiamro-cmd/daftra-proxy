@@ -348,27 +348,40 @@ async function extractPDFText(file){
   return text;
 }
 
-// ✅ FIXED: Batched sync endpoint — no polling, no memory loss, stays under Railway 60s timeout
+// ✅ FIXED: Async + file-based storage — survives Railway connection resets
 async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
   const textChunk=bankText.length>100000?bankText.substring(0,100000):bankText;
   try{
-    log('جاري التحليل على دفعات... يستغرق 30-60 ثانية','info');
-    setProgress(50,'الذكاء الاصطناعي يعمل بالدفعات...');
-    let prog=50;
-    const ticker=setInterval(()=>{prog=Math.min(prog+0.5,88);setProgress(Math.round(prog),'جاري التحليل...');},1000);
-    let respData;
-    try{
-      const startResp=await fetch(`${PROXY}/analyze-bank-sync`,{
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({text:textChunk})
-      });
-      respData=await startResp.json();
-    }finally{clearInterval(ticker);}
-    if(respData.status==='error')throw new Error(respData.error||'Analysis failed');
-    if(!respData.result)throw new Error('No result returned from server');
-    const data=respData.result;
+    // Step 1: Start async job (returns immediately with job_id)
+    const startResp=await fetch(`${PROXY}/analyze-bank`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:textChunk})
+    });
+    const startData=await startResp.json();
+    if(startData.error)throw new Error(startData.error);
+    const jobId=startData.job_id;
+    if(!jobId)throw new Error('No job ID returned');
+    log('جاري التحليل بالدفعات... قد يستغرق 2-3 دقائق','info');
+    setProgress(50,'الذكاء الاصطناعي يعمل...');
+    // Step 2: Poll — results saved to file on server, survive connection resets
+    let data=null;
+    for(let i=0;i<90;i++){
+      await new Promise(r=>setTimeout(r,5000));
+      try{
+        const pollResp=await fetch(`${PROXY}/analysis-result/${jobId}`);
+        const pollData=await pollResp.json();
+        const elapsed=Math.round((i+1)*5);
+        setProgress(Math.min(50+i,88),`جاري التحليل... ${elapsed} ثانية`);
+        if(pollData.status==='done'){data=pollData.result;break;}
+        if(pollData.status==='error')throw new Error(pollData.error||'Analysis failed');
+        // status=running or pending → keep polling
+      }catch(pollErr){
+        // Network hiccup — keep polling
+        log('إعادة المحاولة...','info');
+      }
+    }
+    if(!data)throw new Error('انتهت مهلة التحليل — حاول مرة أخرى');
     setProgress(90,'جاري معالجة النتائج...');
     const result=typeof data==='object'?data:JSON.parse(data);
     bankPeriod=result.period||'';bankName=result.bank||'الراجحي';
