@@ -73,10 +73,21 @@ ACCOUNT_CATEGORY = {
     '077050010006084823853': 'personal', '539000010006085772890': 'personal',
 }
 
-EXPENSE_ACCOUNT_ID = {
-    'salary': '56', 'rent': '52', 'transportation': '52',
-    'government': '52', 'bank_fee': '52', 'personal': '54',
-    'loan': '54', 'other': '54',
+# ✅ FIX: These are Daftra expense_category_id values (not account IDs)
+EXPENSE_CATEGORY_ID = {
+    'salary': '1282',
+    'rent': '866',
+    'transportation': '1285',
+    'government': '904',
+    'bank_fee': '1284',
+    'personal': '1263',
+    'loan': '1263',
+    'other': '1263',
+}
+
+# ✅ NEW: Known vendors (supplier payments, not expenses)
+VENDOR_NAMES = {
+    'بيتي النيق': {'supplier_name': 'بيتي النيق', 'daftra_action': 'match_purchase_invoice'},
 }
 
 EXCLUDE_KEYWORDS = ['ديزل', 'محروقات', 'diesel', 'fuel']
@@ -199,7 +210,7 @@ AlRajhi internal transfers: ignore the label, classify by direction and recipien
 EMPLOYEES (salary): بلال جلال غانم(2155703453), MD ANIS(2500894296), MD JAULHAS MOLLA(2549846075), محمد المجيدل(1123351007), TAUFEEK AHMAD(2544919612), TAREKH HUSEN(2544919596), فهد البطي(1131768192), احمد محمد حماد(2568475756), فهد العليان(1126192390), RAMJAN MANSHUR(2602072692), NOORUL HODA KHAN(2602072783), AFROJ SALMANI(2612225173), SAVEJ ABDUL RAHMAN(2619122530), SADDAM KHAN(2630277883), MD ARIF HOSSAIN(2630277933), WAJID ALI(2636857225), احمد الفضل(1136786959), MD AMAN ULLAH(2576905463), يزن الحلبي(2229429291), KAMAL HOSSAIN(2551964485), SIKANDAR GUPTA(2574846610), SALAMUDDIN, سلام مبلط, صلاح مبلط, ابو ريناد, مالك نواف, ابو حسين, عبد الله فرع الرياض, مالك, معتز, MOATAZ
 PERSONAL (owner draws): عمرو الحلبي(2229429275), اميرة(2229429267)
 TRANSPORTATION: عبدالحسيب, عمرو بدوي, IBRAHIM
-LOCAL SUPPLIERS: واهوي, أسوار الخليج, اسوار الخليج, السنا للرخام, الفرات للرخام, جنى مارين, قمم الشام
+LOCAL SUPPLIERS (vendor payments): واهوي, أسوار الخليج, اسوار الخليج, السنا للرخام, الفرات للرخام, جنى مارين, قمم الشام, بيتي النيق
 CHINA SUPPLIERS: GBOUEO02, SHENYANG, China/CNY transfers
 CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, ماهر حباب, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH
 OTHER: سليمان المهوس=rent Buraydah, جي مارين=rent Riyadh, LOANFLEET=loan, Mudud=salary, نقاط بيع MALI QURTOBA=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate Renew Iqama=government
@@ -210,49 +221,133 @@ daftra_action: client_payment IN→match_invoice | local/china supplier OUT→ma
 
 Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"","notes":""}]}"""
 
+BATCH_PROMPT = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
+Classify ONLY the transactions in the provided batch. Return ONLY valid JSON — no extra text.
+
+CRITICAL RULE: Every incoming payment (direction=in) is ALWAYS a client_payment. No exceptions.
+CRITICAL RULE: اعمال الشوري is a client REFUND (direction=out, category=other, daftra_action=skip).
+
+EMPLOYEES (salary): بلال جلال غانم(2155703453), MD ANIS(2500894296), MD JAULHAS MOLLA(2549846075), محمد المجيدل(1123351007), TAUFEEK AHMAD(2544919612), TAREKH HUSEN(2544919596), فهد البطي(1131768192), احمد محمد حماد(2568475756), فهد العليان(1126192390), RAMJAN MANSHUR(2602072692), NOORUL HODA KHAN(2602072783), AFROJ SALMANI(2612225173), SAVEJ ABDUL RAHMAN(2619122530), SADDAM KHAN(2630277883), MD ARIF HOSSAIN(2630277933), WAJID ALI(2636857225), احمد الفضل(1136786959), MD AMAN ULLAH(2576905463), يزن الحلبي(2229429291), KAMAL HOSSAIN(2551964485), SIKANDAR GUPTA(2574846610), SALAMUDDIN, سلام مبلط, صلاح مبلط, ابو ريناد, مالك نواف, ابو حسين, عبد الله فرع الرياض, مالك, معتز, MOATAZ
+PERSONAL (owner draws): عمرو الحلبي(2229429275), اميرة(2229429267)
+TRANSPORTATION: عبدالحسيب, عمرو بدوي, IBRAHIM
+LOCAL SUPPLIERS: واهوي, أسوار الخليج, اسوار الخليج, السنا للرخام, الفرات للرخام, جنى مارين, قمم الشام, بيتي النيق
+CHINA SUPPLIERS: GBOUEO02, SHENYANG, China/CNY transfers
+CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, ماهر حباب, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH
+OTHER: سليمان المهوس=rent Buraydah, جي مارين=rent Riyadh, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate Renew Iqama=government
+
+daftra_action: client_payment IN→match_invoice | local/china supplier OUT→match_purchase_invoice | salary/rent/transport/gov/fee/personal/loan→record_expense | else→skip
+
+Return ONLY: {"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"","notes":""}]}"""
+
+def _split_into_lines(bank_text):
+    """Split bank text into individual transaction lines."""
+    lines = [l.strip() for l in bank_text.split('\n') if l.strip()]
+    return lines
+
+def _call_claude_batch(lines, ai_client):
+    """Call Claude with a batch of lines. Returns list of transactions."""
+    batch_text = '\n'.join(lines)
+    msg = ai_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": BATCH_PROMPT + "\n\nBANK STATEMENT ROWS:\n" + batch_text}]
+    )
+    raw = msg.content[0].text
+    m = re.search(r'\{[\s\S]*\}', raw)
+    parsed = json.loads(m.group() if m else raw)
+    return parsed.get('transactions', [])
+
+def _enrich_transactions(transactions, open_sales, open_purchases):
+    """Post-process transactions: vendor override, employee ID lookup, invoice matching."""
+    for tx in transactions:
+        amt = float(tx.get('amount', 0))
+        party = tx.get('party', '') or ''
+        description = tx.get('description', '') or ''
+        combined = f"{party} {description}"
+
+        # Known vendors override (e.g. بيتي النيق)
+        for vendor_key, vendor_info in VENDOR_NAMES.items():
+            if vendor_key in combined:
+                tx['category'] = 'local_supplier'
+                tx['party'] = vendor_info['supplier_name']
+                tx['daftra_action'] = vendor_info['daftra_action']
+                break
+
+        # Employee ID lookup
+        emp_id = extract_id_from_text(combined)
+        if emp_id and emp_id in EMPLOYEE_IDS:
+            emp_name = EMPLOYEE_IDS[emp_id]
+            emp_cat = EMPLOYEE_CATEGORY.get(emp_id, 'salary')
+            tx['category'] = emp_cat
+            tx['party'] = emp_name
+            if not tx.get('notes'):
+                tx['notes'] = f"{description} - {emp_name} - ID: {emp_id}"
+            tx['daftra_action'] = 'record_expense'
+
+        # Invoice matching
+        if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
+            matches = match_payment(amt, open_sales, party, description, 'Invoice')
+            tx['invoice_matches'] = matches
+            tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
+        elif tx.get('direction') == 'out' and tx.get('category') in ['local_supplier', 'china_supplier']:
+            matches = match_payment(amt, open_purchases, party, description, 'PurchaseInvoice')
+            tx['purchase_invoice_matches'] = matches
+            tx['daftra_action'] = 'match_purchase_invoice' if matches else 'waiting_list_purchase'
+    return transactions
+
+def _do_analysis(bank_text):
+    """Batched analysis — splits into groups of 15 lines, each batch ~15 sec, well under Railway timeout."""
+    ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+
+    # Step 1: Extract header info (bank name, period, opening/closing balance) from first 10 lines
+    header_lines = bank_text.split('\n')[:10]
+    header_prompt = 'Extract bank name, period, opening balance, closing balance from this header. Return ONLY JSON: {"bank":"","period":"","opening":0,"closing":0}\n\n' + '\n'.join(header_lines)
+    try:
+        hdr_msg = ai_client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=200,
+            messages=[{"role": "user", "content": header_prompt}]
+        )
+        hdr_raw = hdr_msg.content[0].text
+        hm = re.search(r'\{[^}]+\}', hdr_raw)
+        header = json.loads(hm.group()) if hm else {"bank": "الراجحي", "period": "", "opening": 0, "closing": 0}
+    except:
+        header = {"bank": "الراجحي", "period": "", "opening": 0, "closing": 0}
+
+    # Step 2: Split transaction lines into batches of 15
+    all_lines = _split_into_lines(bank_text)
+    # Skip header lines (no date pattern)
+    tx_lines = [l for l in all_lines if re.search(r'\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}|\d{2}-\d{2}-\d{4}', l)]
+    if not tx_lines:
+        tx_lines = all_lines  # fallback: use all lines
+
+    BATCH_SIZE = 15
+    batches = [tx_lines[i:i+BATCH_SIZE] for i in range(0, len(tx_lines), BATCH_SIZE)]
+
+    all_transactions = []
+    for batch in batches:
+        try:
+            txns = _call_claude_batch(batch, ai_client)
+            all_transactions.extend(txns)
+        except Exception as e:
+            # If a batch fails, continue with others
+            continue
+
+    # Step 3: Load Daftra invoices once for all transactions
+    needs_sales = any(t.get('direction') == 'in' and t.get('category') == 'client_payment' for t in all_transactions)
+    needs_purchases = any(t.get('direction') == 'out' and t.get('category') in ['local_supplier', 'china_supplier'] for t in all_transactions)
+    open_sales = get_open_invoices('sales') if needs_sales else []
+    open_purchases = get_open_invoices('purchase') if needs_purchases else []
+
+    # Step 4: Enrich all transactions
+    all_transactions = _enrich_transactions(all_transactions, open_sales, open_purchases)
+
+    return {**header, 'transactions': all_transactions}
+
+# ✅ Keep async job system for backward compat but also support sync
 def _run_analysis(job_id, bank_text):
     try:
         _jobs[job_id] = {'status': 'running'}
-        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-        msg = ai_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=8000,
-            messages=[{"role": "user", "content": PROMPT + "\n\n" + bank_text[:50000]}]
-        )
-        raw = msg.content[0].text
-        m = re.search(r'\{[\s\S]*\}', raw)
-        result = json.loads(m.group() if m else raw)
-        transactions = result.get('transactions', [])
-
-        needs_sales = any(t.get('direction') == 'in' and t.get('category') == 'client_payment' for t in transactions)
-        needs_purchases = any(t.get('direction') == 'out' and t.get('category') in ['local_supplier', 'china_supplier'] for t in transactions)
-        open_sales = get_open_invoices('sales') if needs_sales else []
-        open_purchases = get_open_invoices('purchase') if needs_purchases else []
-
-        for tx in transactions:
-            amt = float(tx.get('amount', 0))
-            party = tx.get('party', '') or ''
-            description = tx.get('description', '') or ''
-            combined = f"{party} {description}"
-            emp_id = extract_id_from_text(combined)
-            if emp_id and emp_id in EMPLOYEE_IDS:
-                emp_name = EMPLOYEE_IDS[emp_id]
-                emp_cat = EMPLOYEE_CATEGORY.get(emp_id, 'salary')
-                tx['category'] = emp_cat
-                tx['party'] = emp_name
-                if not tx.get('notes'):
-                    tx['notes'] = f"{description} - {emp_name} - ID: {emp_id}"
-                tx['daftra_action'] = 'record_expense'
-            if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
-                matches = match_payment(amt, open_sales, party, description, 'Invoice')
-                tx['invoice_matches'] = matches
-                tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
-            elif tx.get('direction') == 'out' and tx.get('category') in ['local_supplier', 'china_supplier']:
-                matches = match_payment(amt, open_purchases, party, description, 'PurchaseInvoice')
-                tx['purchase_invoice_matches'] = matches
-                tx['daftra_action'] = 'match_purchase_invoice' if matches else 'waiting_list_purchase'
-
-        result['transactions'] = transactions
+        result = _do_analysis(bank_text)
         _jobs[job_id] = {'status': 'done', 'result': result}
     except Exception as e:
         _jobs[job_id] = {'status': 'error', 'error': str(e)}
@@ -273,6 +368,21 @@ def open_purchase_invoices_endpoint():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     return cors(make_response(jsonify({'invoices': get_open_invoices('purchase')}), 200))
 
+# ✅ NEW: Synchronous analyze endpoint — returns result directly, no polling needed
+@app.route('/analyze-bank-sync', methods=['POST', 'OPTIONS'])
+def analyze_bank_sync():
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    bank_text = data.get('text', '')
+    if not bank_text: return cors(make_response(jsonify({'error': 'No text provided'}), 400))
+    if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
+    try:
+        result = _do_analysis(bank_text)
+        return cors(make_response(jsonify({'status': 'done', 'result': result}), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'status': 'error', 'error': str(e)}), 500))
+
+# Keep old async endpoint for compatibility
 @app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
 def analyze_bank():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
@@ -345,16 +455,49 @@ def record_purchase_payment():
 def record_expense():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     data = request.get_json()
-    amount, date, description, category, notes = data.get('amount'), data.get('date'), data.get('description', ''), data.get('category', 'other'), data.get('notes', '')
-    account_id = EXPENSE_ACCOUNT_ID.get(category, '54')
+    amount = data.get('amount')
+    date = data.get('date')
+    description = data.get('description', '')
+    category = data.get('category', 'other')
+    notes = data.get('notes', '')
+    # ✅ FIX: Use correct Daftra expense_category_id
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '1263')
     rich_notes = f"{description} | {notes}" if notes and notes != description else (description or notes)
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
     try:
         resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, timeout=30,
-            json={"Expense": {"amount": float(amount), "date": date, "description": description,
-                               "notes": rich_notes, "expense_category_id": account_id}})
+            json={"Expense": {
+                "amount": float(amount),
+                "date": date,
+                "description": description,
+                "notes": rich_notes,
+                "expense_category_id": expense_category_id
+            }})
         resp_data = resp.json()
         if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
+            return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
+        return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
+# ✅ NEW: Edit expense category
+@app.route('/edit-expense/<expense_id>', methods=['PUT', 'OPTIONS'])
+def edit_expense(expense_id):
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    category = data.get('category', 'other')
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '1263')
+    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
+    try:
+        # Build update payload — only send fields provided
+        payload = {"Expense": {"expense_category_id": expense_category_id}}
+        if 'description' in data: payload['Expense']['description'] = data['description']
+        if 'amount' in data: payload['Expense']['amount'] = float(data['amount'])
+        if 'date' in data: payload['Expense']['date'] = data['date']
+        if 'notes' in data: payload['Expense']['notes'] = data['notes']
+        resp = requests.put(f"{DAFTRA_BASE}/expenses/{expense_id}", headers=headers, json=payload, timeout=30)
+        resp_data = resp.json()
+        if resp.status_code in [200, 201] or resp_data.get("result") == "successful":
             return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
         return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
     except Exception as e:
@@ -405,10 +548,8 @@ def execute_deletions():
 
 @app.route('/find-invoice/<invoice_no>', methods=['GET', 'OPTIONS'])
 def find_invoice(invoice_no):
-    """Find invoice by number (no field) or ID"""
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     try:
-        # Try direct ID lookup first
         r = requests.get(f"{DAFTRA_BASE}/invoices/{invoice_no}", headers={'APIKEY': APIKEY}, timeout=15)
         data = r.json()
         inv = data.get('data', {})
@@ -416,7 +557,6 @@ def find_invoice(invoice_no):
         inv_obj = inv.get('Invoice', inv)
         if inv_obj.get('id'):
             return cors(make_response(jsonify({'found': True, 'invoice': inv_obj}), 200))
-        # Try searching by invoice number
         search = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY},
                               params={'no': invoice_no, 'limit': 5}, timeout=15)
         results = search.json().get('data', [])
