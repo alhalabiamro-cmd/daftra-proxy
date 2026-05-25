@@ -253,13 +253,20 @@ def _call_claude_batch(lines, ai_client):
     parsed = json.loads(m.group() if m else raw)
     txns = parsed.get('transactions', [])
 
-    # ✅ Server-side fallback: never send empty description/notes to Daftra
+    # ✅ ALWAYS use raw transaction line as description — guaranteed to have real text
+    CATEGORY_WORDS = {'salary','rent','transportation','government','bank_fee','personal','loan',
+                      'other','رواتب','إيجار','نقل','حكومي','رسوم','شخصي','قرض','أخرى',
+                      'client_payment','local_supplier','china_supplier','record_expense','skip'}
     for i, tx in enumerate(txns):
         raw_line = lines[i] if i < len(lines) else ''
-        if not (tx.get('description') or '').strip():
+        claude_desc = (tx.get('description') or '').strip()
+        # If Claude returned empty or just a category word, use raw line
+        if not claude_desc or claude_desc.lower() in CATEGORY_WORDS:
             tx['description'] = raw_line
-        if not (tx.get('notes') or '').strip():
-            tx['notes'] = tx['description']
+        else:
+            tx['description'] = claude_desc
+        # Notes: combine Claude's description with raw line for full context
+        tx['notes'] = claude_desc if claude_desc and claude_desc.lower() not in CATEGORY_WORDS else raw_line
         if not (tx.get('daftra_action') or '').strip():
             cat = tx.get('category', '')
             if tx.get('direction') == 'in':
