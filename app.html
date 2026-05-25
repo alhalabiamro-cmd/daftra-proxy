@@ -348,49 +348,49 @@ async function extractPDFText(file){
   return text;
 }
 
-// ✅ FIXED: Async + file-based storage — survives Railway connection resets
+// ✅ CLIENT-SIDE BATCHING: frontend splits lines, sends 10 at a time, each <20 sec
 async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
   const textChunk=bankText.length>100000?bankText.substring(0,100000):bankText;
   try{
-    // Step 1: Start async job (returns immediately with job_id)
-    const startResp=await fetch(`${PROXY}/analyze-bank`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({text:textChunk})
-    });
-    const startData=await startResp.json();
-    if(startData.error)throw new Error(startData.error);
-    const jobId=startData.job_id;
-    if(!jobId)throw new Error('No job ID returned');
-    log('جاري التحليل بالدفعات... قد يستغرق 2-3 دقائق','info');
-    setProgress(50,'الذكاء الاصطناعي يعمل...');
-    // Step 2: Poll — results saved to file on server, survive connection resets
-    let data=null;
-    for(let i=0;i<90;i++){
-      await new Promise(r=>setTimeout(r,5000));
+    // Split into transaction lines
+    const allLines=textChunk.split('\n').map(l=>l.trim()).filter(l=>l.length>5);
+    const txLines=allLines.filter(l=>/\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4}/.test(l));
+    const lines=txLines.length>5?txLines:allLines.filter(l=>!/^[-=]+$/.test(l));
+    const headerText=allLines.slice(0,15).join('\n');
+    const BATCH=10;
+    const batches=[];
+    for(let i=0;i<lines.length;i+=BATCH) batches.push(lines.slice(i,i+BATCH));
+    log(`تم تقسيم ${lines.length} معاملة إلى ${batches.length} دفعة`,'info');
+    setProgress(40,'جاري إرسال الدفعات...');
+    let allTxnsRaw=[];
+    let header={bank:'الراجحي',period:'',opening:0,closing:0};
+    for(let b=0;b<batches.length;b++){
+      const pct=Math.round(40+(b/batches.length)*50);
+      setProgress(pct,`دفعة ${b+1} من ${batches.length}...`);
+      log(`جاري تحليل الدفعة ${b+1}/${batches.length}...`,'info');
       try{
-        const pollResp=await fetch(`${PROXY}/analysis-result/${jobId}`);
-        const pollData=await pollResp.json();
-        const elapsed=Math.round((i+1)*5);
-        setProgress(Math.min(50+i,88),`جاري التحليل... ${elapsed} ثانية`);
-        if(pollData.status==='done'){data=pollData.result;break;}
-        if(pollData.status==='error')throw new Error(pollData.error||'Analysis failed');
-        // status=running or pending → keep polling
-      }catch(pollErr){
-        // Network hiccup — keep polling
-        log('إعادة المحاولة...','info');
+        const resp=await fetch(`${PROXY}/analyze-batch`,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({lines:batches[b],is_first:b===0,header_text:b===0?headerText:''})
+        });
+        const data=await resp.json();
+        if(data.error){log('خطأ في الدفعة '+b+': '+data.error,'warn');}
+        if(data.transactions) allTxnsRaw.push(...data.transactions);
+        if(b===0&&data.bank) header={bank:data.bank||'الراجحي',period:data.period||'',opening:data.opening||0,closing:data.closing||0};
+        log(`✓ دفعة ${b+1}: ${data.transactions?.length||0} معاملة`,'ok');
+      }catch(batchErr){
+        log('خطأ شبكة في الدفعة '+b,'warn');
       }
     }
-    if(!data)throw new Error('انتهت مهلة التحليل — حاول مرة أخرى');
-    setProgress(90,'جاري معالجة النتائج...');
-    const result=typeof data==='object'?data:JSON.parse(data);
-    bankPeriod=result.period||'';bankName=result.bank||'الراجحي';
-    log('تم اكتشاف '+(result.transactions?.length||0)+' معاملة','ok');
-    setProgress(95,'جاري تحميل فواتير دفترة...');
+    setProgress(92,'جاري تحميل فواتير دفترة...');
+    bankPeriod=header.period;bankName=header.bank;
+    log('تم اكتشاف '+allTxnsRaw.length+' معاملة إجمالاً','ok');
     allInvoices=await loadDaftraInvoices();
-    log('تم تحميل '+allInvoices.length+' فاتورة مفتوحة من دفترة','ok');
+    log('تم تحميل '+allInvoices.length+' فاتورة مفتوحة','ok');
     setProgress(98,'جاري مطابقة الفواتير...');
-    allTxns=result.transactions||[];matchAllPayments();setProgress(100,'اكتمل التحليل ✓');renderReview(result);
+    allTxns=allTxnsRaw;matchAllPayments();setProgress(100,'اكتمل التحليل ✓');
+    renderReview({...header,transactions:allTxnsRaw});
   }catch(e){log('خطأ: '+e.message,'warn');allTxns=[];renderReview({bank:'الراجحي',transactions:[]});}
 }
 
