@@ -91,14 +91,16 @@ ACCOUNT_CATEGORY = {
 }
 
 EXPENSE_CATEGORY_ID = {
-    'salary': '1282',
-    'rent': '866',
-    'transportation': '1285',
-    'government': '904',
-    'bank_fee': '1284',
-    'personal': '1263',
-    'loan': '1263',
-    'other': '1263',
+    'salary': '23',
+    'rent': '19',
+    'transportation': '26',
+    'government': '16',
+    'bank_fee': '25',
+    'personal': '24',
+    'loan': '10',
+    'other': '24',
+    'utilities': '27',
+    'internet': '9',
 }
 
 VENDOR_NAMES = {
@@ -485,7 +487,7 @@ def record_expense():
     description = data.get('description', '') or ''
     category = data.get('category', 'other')
     notes = data.get('notes', '') or ''
-    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '1263')
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '24')
     # Always ensure description is not empty
     if not description.strip():
         description = notes or 'مصروف'
@@ -512,7 +514,7 @@ def edit_expense(expense_id):
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     data = request.get_json()
     category = data.get('category', 'other')
-    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '1263')
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '24')
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
     try:
         payload = {"Expense": {"expense_category_id": expense_category_id}}
