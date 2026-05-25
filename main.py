@@ -499,7 +499,8 @@ def record_expense():
                 "amount": float(amount),
                 "date": date,
                 "note": rich_notes,
-                "expense_category_id": expense_category_id
+                "expense_category_id": expense_category_id,
+                "treasury_id": "3"
             }})
         resp_data = resp.json()
         if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
