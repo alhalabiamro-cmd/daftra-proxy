@@ -498,8 +498,7 @@ def record_expense():
             json={"Expense": {
                 "amount": float(amount),
                 "date": date,
-                "description": description,
-                "notes": rich_notes,
+                "note": rich_notes,
                 "expense_category_id": expense_category_id
             }})
         resp_data = resp.json()
