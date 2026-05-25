@@ -386,6 +386,34 @@ def open_purchase_invoices_endpoint():
     return cors(make_response(jsonify({'invoices': get_open_invoices('purchase')}), 200))
 
 # ✅ NEW: Synchronous analyze endpoint — returns result directly, no polling needed
+@app.route('/analyze-batch', methods=['POST', 'OPTIONS'])
+def analyze_batch_endpoint():
+    """Process a small batch of lines synchronously — completes in <20 sec."""
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    lines = data.get('lines', [])
+    is_first = data.get('is_first', False)
+    header_text = data.get('header_text', '')
+    if not lines: return cors(make_response(jsonify({'transactions': []}), 200))
+    if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key'}), 500))
+    try:
+        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        txns = _call_claude_batch(lines, ai_client)
+        result = {'transactions': txns}
+        # Extract header info only on first batch
+        if is_first and header_text:
+            try:
+                hdr_msg = ai_client.messages.create(
+                    model="claude-haiku-4-5-20251001", max_tokens=200,
+                    messages=[{"role": "user", "content": 'Extract bank, period, opening, closing from this. Return ONLY JSON: {"bank":"","period":"","opening":0,"closing":0}\n\n' + header_text}]
+                )
+                hm = re.search(r'\{[^}]+\}', hdr_msg.content[0].text)
+                if hm: result.update(json.loads(hm.group()))
+            except: pass
+        return cors(make_response(jsonify(result), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e), 'transactions': []}), 200))
+
 @app.route('/analyze-bank-sync', methods=['POST', 'OPTIONS'])
 def analyze_bank_sync():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
