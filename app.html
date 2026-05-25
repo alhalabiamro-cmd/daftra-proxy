@@ -65,6 +65,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',Tahoma,sans-s
 .txn-table tr:last-child td{border-bottom:none}
 .txn-table tr:hover td{background:var(--surface2)}
 .cat-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.cat-select{background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer}
 .cat-client{background:#0f2a0f;color:#4caf50}.cat-china{background:#2a1a00;color:#ffa726}
 .cat-salary{background:#0f1a2a;color:#42a5f5}.cat-rent{background:#2a0f2a;color:#ce93d8}
 .cat-personal{background:#2a0f0f;color:#ef9a9a}.cat-supplier{background:#1a1a00;color:#fff176}
@@ -347,37 +348,35 @@ async function extractPDFText(file){
   return text;
 }
 
+// ✅ FIXED: Batched sync endpoint — no polling, no memory loss, stays under Railway 60s timeout
 async function analyzeWithServer(bankText){
   log('الذكاء الاصطناعي يصنف المعاملات...');
   const textChunk=bankText.length>100000?bankText.substring(0,100000):bankText;
   try{
-    // Step 1: Start async job
-    const startResp=await fetch(`${PROXY}/analyze-bank`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:textChunk})});
-    const startData=await startResp.json();
-    if(startData.error)throw new Error(startData.error);
-    const jobId=startData.job_id;
-    if(!jobId)throw new Error('No job ID returned');
-    log('جاري التحليل... قد يستغرق دقيقة أو دقيقتين','info');
-    setProgress(50,'الذكاء الاصطناعي يعمل...');
-    // Step 2: Poll for result
-    let data=null;
-    for(let i=0;i<60;i++){
-      await new Promise(r=>setTimeout(r,5000));
-      const pollResp=await fetch(`${PROXY}/analysis-result/${jobId}`);
-      const pollData=await pollResp.json();
-      setProgress(50+i,`جاري التحليل... ${i*5} ثانية`);
-      if(pollData.status==='done'){data=pollData.result;break;}
-      if(pollData.status==='error')throw new Error(pollData.error||'Analysis failed');
-    }
-    if(!data)throw new Error('Analysis timed out after 5 minutes');
-    setProgress(70,'جاري معالجة النتائج...');
+    log('جاري التحليل على دفعات... يستغرق 30-60 ثانية','info');
+    setProgress(50,'الذكاء الاصطناعي يعمل بالدفعات...');
+    let prog=50;
+    const ticker=setInterval(()=>{prog=Math.min(prog+0.5,88);setProgress(Math.round(prog),'جاري التحليل...');},1000);
+    let respData;
+    try{
+      const startResp=await fetch(`${PROXY}/analyze-bank-sync`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({text:textChunk})
+      });
+      respData=await startResp.json();
+    }finally{clearInterval(ticker);}
+    if(respData.status==='error')throw new Error(respData.error||'Analysis failed');
+    if(!respData.result)throw new Error('No result returned from server');
+    const data=respData.result;
+    setProgress(90,'جاري معالجة النتائج...');
     const result=typeof data==='object'?data:JSON.parse(data);
     bankPeriod=result.period||'';bankName=result.bank||'الراجحي';
     log('تم اكتشاف '+(result.transactions?.length||0)+' معاملة','ok');
-    setProgress(85,'جاري تحميل فواتير دفترة...');
+    setProgress(95,'جاري تحميل فواتير دفترة...');
     allInvoices=await loadDaftraInvoices();
     log('تم تحميل '+allInvoices.length+' فاتورة مفتوحة من دفترة','ok');
-    setProgress(95,'جاري مطابقة الفواتير...');
+    setProgress(98,'جاري مطابقة الفواتير...');
     allTxns=result.transactions||[];matchAllPayments();setProgress(100,'اكتمل التحليل ✓');renderReview(result);
   }catch(e){log('خطأ: '+e.message,'warn');allTxns=[];renderReview({bank:'الراجحي',transactions:[]});}
 }
@@ -449,6 +448,7 @@ function filterTxns(type,btn){document.querySelectorAll('.filter-btn').forEach(b
 function renderTable(txns){
   const cc={client_payment:'cat-client',china_supplier:'cat-china',local_supplier:'cat-supplier',salary:'cat-salary',rent:'cat-rent',personal:'cat-personal',government:'cat-other',bank_fee:'cat-fee',transportation:'cat-other',loan:'cat-other',other:'cat-other'};
   const cn={client_payment:'دفعة عميل',china_supplier:'صين',local_supplier:'مورد',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم',transportation:'نقل',loan:'قرض',other:'أخرى'};
+  const expenseCats=['salary','rent','transportation','government','bank_fee','personal','loan','other'];
   document.getElementById('txn-body').innerHTML=txns.map((t,i)=>{
     const cls=cc[t.category]||'cat-other';const amtCls=t.direction==='in'?'amount-in':'amount-out';const sign=t.direction==='in'?'+':'-';const chk=t.daftra_action!=='skip'&&t.daftra_action!=='waiting_list'?'checked':'';
     let matchHtml='<span style="color:var(--muted);font-size:11px">—</span>';
@@ -459,8 +459,19 @@ function renderTable(txns){
     else if(t._match&&t._matchType==='combined')matchHtml=`<div class="match-linked">${editBtn}✅ ${t._match.map(m=>m.no).join(' + ')} (مجموع)</div>`;
     else if(t._match&&t._matchType==='manual')matchHtml=`<div class="match-linked">${editBtn}✏️ ${Array.isArray(t._match)?t._match.map(m=>m.no).join(' + '):t._match.no} (يدوي)</div>`;
     else if(t.daftra_action==='waiting_list')matchHtml=`<div class="match-waiting">⏳ قائمة انتظار</div>`;
-    return `<tr><td><input type="checkbox" class="chk txn-chk" data-idx="${i}" ${chk} onchange="updateSelCount()"></td><td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td><td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}</td><td><span class="cat-badge ${cls}">${cn[t.category]||t.category}</span></td><td class="${amtCls}" style="text-align:left;white-space:nowrap">${sign} ${fmt(t.amount)}</td><td>${matchHtml}</td></tr>`;
+    const realIdx=allTxns.indexOf(t);
+    const isExpense=t.daftra_action==='record_expense'||expenseCats.includes(t.category);
+    const catCell=isExpense
+      ?`<select class="cat-select" onchange="changeCat(${realIdx},this.value)">${expenseCats.map(c=>`<option value="${c}"${t.category===c?' selected':''}>${cn[c]||c}</option>`).join('')}</select>`
+      :`<span class="cat-badge ${cls}">${cn[t.category]||t.category}</span>`;
+    return `<tr><td><input type="checkbox" class="chk txn-chk" data-idx="${i}" ${chk} onchange="updateSelCount()"></td><td style="font-size:12px;color:var(--muted);white-space:nowrap">${t.date||'—'}</td><td><div>${t.description||'—'}</div>${t.party?`<div style="font-size:11px;color:var(--muted)">${t.party}</div>`:''}</td><td>${catCell}</td><td class="${amtCls}" style="text-align:left;white-space:nowrap">${sign} ${fmt(t.amount)}</td><td>${matchHtml}</td></tr>`;
   }).join('');
+}
+
+function changeCat(realIdx,newCat){
+  const txn=allTxns[realIdx];if(!txn)return;
+  txn.category=newCat;txn.daftra_action='record_expense';
+  renderAllTab(filtered);
 }
 
 function renderClientsTab(){
@@ -477,9 +488,7 @@ function renderClientsTab(){
 function renderWaitingTab(){
   if(!waitingList.length){document.getElementById('waiting-list').innerHTML=`<div class="empty-state">🎉 لا توجد مدفوعات في قائمة الانتظار!</div>`;return;}
   document.getElementById('waiting-list').innerHTML=waitingList.map((txn,wi)=>{
-    // Sort: client-matching invoices first
-    const txnParty=(txn.party||'').toLowerCase();
-    const txnDesc=(txn.description||'').toLowerCase();
+    const txnParty=(txn.party||'').toLowerCase();const txnDesc=(txn.description||'').toLowerCase();
     const sortedInvoices=[...allInvoices].sort((a,b)=>{
       const aMatch=a.client.toLowerCase().split(' ').some(w=>w.length>3&&(txnParty.includes(w)||txnDesc.includes(w)));
       const bMatch=b.client.toLowerCase().split(' ').some(w=>w.length>3&&(txnParty.includes(w)||txnDesc.includes(w)));
@@ -535,25 +544,17 @@ async function previewManual(wi){
   if(!nos.length){document.getElementById('manual-preview-'+wi).innerHTML='';document.getElementById('btn-manual-'+wi).disabled=true;return;}
   const preview=document.getElementById('manual-preview-'+wi);
   const btn=document.getElementById('btn-manual-'+wi);
-  // First try local list
   let found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0')||String(inv.id)===no||inv.no===String(parseInt(no)).padStart(6,'0'))).filter(Boolean);
-  // If not found locally, fetch from Daftra directly
   if(found.length===0){
     preview.innerHTML='<div style="color:var(--muted);font-size:11px">جاري البحث...</div>';
     try{
       for(const no of nos){
-        // Search by invoice number using dedicated endpoint
         const r=await fetch(`${PROXY}/find-invoice/${encodeURIComponent(no)}`);
-        const d=await r.json();
-        const inv=d.invoice;
+        const d=await r.json();const inv=d.invoice;
         if(inv&&inv.id){
-          const unpaid=parseFloat(inv.summary_unpaid||0);
-          const total=parseFloat(inv.summary_total||0);
-          const remaining=unpaid>0?unpaid:total;
+          const unpaid=parseFloat(inv.summary_unpaid||0);const total=parseFloat(inv.summary_total||0);const remaining=unpaid>0?unpaid:total;
           found.push({id:inv.id,no:inv.no||no,client:inv.client_business_name||'',unpaid:remaining,total:total});
-          // Add to invoiceBalances if not there
           if(!invoiceBalances[inv.id]){invoiceBalances[inv.id]={invoiceNo:inv.no||no,client:inv.client_business_name||'',total:total,unpaid:remaining,paidSoFar:0,linkedTxns:[]};}
-          // Add to allInvoices if not there
           if(!allInvoices.find(i=>i.id==inv.id)){allInvoices.push({id:inv.id,no:inv.no||no,client:inv.client_business_name||'',total:total,unpaid:remaining});}
         }
       }
@@ -565,16 +566,14 @@ async function previewManual(wi){
   btn.disabled=false;
 }
 function linkManual(wi){
-  const txn=waitingList[wi];
-  const input=document.getElementById('manual-input-'+wi).value;
+  const txn=waitingList[wi];const input=document.getElementById('manual-input-'+wi).value;
   const nos=input.split(',').map(s=>s.trim()).filter(Boolean);
   const found=nos.map(no=>allInvoices.find(inv=>inv.no===no||inv.no===no.padStart(6,'0')||String(inv.id)===no||inv.no===String(parseInt(no)).padStart(6,'0'))).filter(Boolean);
   if(!found.length)return;
   found.forEach(inv=>{const bal=invoiceBalances[inv.id];bal.paidSoFar+=parseFloat(txn.amount||0)/found.length;bal.linkedTxns.push(txn);});
   txn._match=found.length===1?found[0]:found;txn._matchType='manual';txn.daftra_action='match_invoice';
   document.getElementById('link-result-'+wi).textContent='✅ تم الربط يدوياً!';
-  document.getElementById('btn-manual-'+wi).disabled=true;
-  document.getElementById('manual-input-'+wi).disabled=true;
+  document.getElementById('btn-manual-'+wi).disabled=true;document.getElementById('manual-input-'+wi).disabled=true;
   document.querySelectorAll(`#inv-list-${wi} .inv-option`).forEach(e=>e.style.pointerEvents='none');
   setTimeout(()=>{const card=document.getElementById('waiting-card-'+wi);card.style.opacity='0.4';card.style.borderColor='var(--border)';},800);
   document.getElementById('badge-waiting').textContent=waitingList.filter(t=>t.daftra_action==='waiting_list').length;
@@ -588,138 +587,38 @@ function updateSelCount(){const cnt=document.querySelectorAll('.txn-chk:checked,
 function fmt(n){return Number(n||0).toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});}
 
 function editMatch(idx){
-  const txn=filtered[idx];
-  if(!txn)return;
-  const newNo=prompt('أدخل رقم الفاتورة الجديد:');
-  if(!newNo)return;
+  const txn=filtered[idx];if(!txn)return;
+  const newNo=prompt('أدخل رقم الفاتورة الجديد:');if(!newNo)return;
   const no=newNo.trim().padStart(6,'0');
   const inv=allInvoices.find(i=>i.no===no||i.no===newNo.trim()||String(i.id)===newNo.trim());
   if(!inv){alert('لم يتم إيجاد الفاتورة — جرب رقم آخر');return;}
-  // Undo old match
-  if(txn._match){
-    const old=Array.isArray(txn._match)?txn._match:[txn._match];
-    old.forEach(m=>{const b=invoiceBalances[m.id];if(b){b.paidSoFar=Math.max(0,b.paidSoFar-parseFloat(txn.amount||0)/old.length);b.linkedTxns=b.linkedTxns.filter(t=>t!==txn);}});
-  }
-  // New match
-  const bal=invoiceBalances[inv.id];
-  if(bal){bal.paidSoFar+=parseFloat(txn.amount||0);bal.linkedTxns.push(txn);}
+  if(txn._match){const old=Array.isArray(txn._match)?txn._match:[txn._match];old.forEach(m=>{const b=invoiceBalances[m.id];if(b){b.paidSoFar=Math.max(0,b.paidSoFar-parseFloat(txn.amount||0)/old.length);b.linkedTxns=b.linkedTxns.filter(t=>t!==txn);}});}
+  const bal=invoiceBalances[inv.id];if(bal){bal.paidSoFar+=parseFloat(txn.amount||0);bal.linkedTxns.push(txn);}
   txn._match=inv;txn._matchType='manual';txn.daftra_action='match_invoice';
-  renderTable(filtered);
-  alert('✅ تم تغيير الفاتورة إلى '+inv.no);
+  renderTable(filtered);alert('✅ تم تغيير الفاتورة إلى '+inv.no);
 }
 
-// ─── EXCEL EXPORT ────────────────────────────────────────────────────────────
 function exportToExcel(){
   if(!allTxns.length){alert('لا توجد بيانات للتصدير');return;}
-
-  const wb = XLSX.utils.book_new();
+  const wb=XLSX.utils.book_new();
   const catNames={client_payment:'دفعة عميل',china_supplier:'مورد صيني',local_supplier:'مورد محلي',salary:'رواتب',rent:'إيجار',personal:'شخصي',government:'حكومي',bank_fee:'رسوم بنكية',transportation:'نقل',loan:'قرض',other:'أخرى'};
   const dirNames={in:'وارد',out:'صادر'};
-
-  // ── Sheet 1: كل المعاملات ────────────────────────────────
   const allRows=[['التاريخ','الوصف','الطرف','التصنيف','الاتجاه','المبلغ (SAR)','رقم الفاتورة','العميل','حالة الربط','ملاحظات']];
   allTxns.forEach(t=>{
     let invNo='',invClient='',matchStatus='';
-    if(t._match){
-      const ms=Array.isArray(t._match)?t._match:[t._match];
-      invNo=ms.map(m=>m.no).join(' + ');
-      invClient=ms[0].client||'';
-      const statusMap={exact:'مطابق تام',close:'قريب',partial:'دفعة جزئية',combined:'مجموع فاتورتين',manual:'يدوي'};
-      matchStatus=statusMap[t._matchType]||t._matchType||'';
-    } else if(t.daftra_action==='waiting_list'){matchStatus='قائمة الانتظار';}
+    if(t._match){const ms=Array.isArray(t._match)?t._match:[t._match];invNo=ms.map(m=>m.no).join(' + ');invClient=ms[0].client||'';const statusMap={exact:'مطابق تام',close:'قريب',partial:'دفعة جزئية',combined:'مجموع فاتورتين',manual:'يدوي'};matchStatus=statusMap[t._matchType]||t._matchType||'';}
+    else if(t.daftra_action==='waiting_list'){matchStatus='قائمة الانتظار';}
     allRows.push([t.date||'',t.description||'',t.party||'',catNames[t.category]||t.category||'',dirNames[t.direction]||t.direction||'',parseFloat(t.amount||0),invNo,invClient,matchStatus,t.notes||'']);
   });
-  const ws1=XLSX.utils.aoa_to_sheet(allRows);
-  ws1['!cols']=[{wch:12},{wch:35},{wch:25},{wch:14},{wch:8},{wch:14},{wch:18},{wch:28},{wch:18},{wch:20}];
-  styleHeader(ws1,allRows[0].length);
+  const ws1=XLSX.utils.aoa_to_sheet(allRows);ws1['!cols']=[{wch:12},{wch:35},{wch:25},{wch:14},{wch:8},{wch:14},{wch:18},{wch:28},{wch:18},{wch:20}];styleHeader(ws1,allRows[0].length);
   XLSX.utils.book_append_sheet(wb,ws1,'كل المعاملات');
-
-  // ── Sheet 2: دفعات العملاء ───────────────────────────────
-  const clients=allTxns.filter(t=>t.direction==='in'&&t.category==='client_payment');
-  const clientRows=[['التاريخ','الوصف','الطرف','المبلغ المدفوع (SAR)','رقم الفاتورة','العميل','إجمالي الفاتورة (SAR)','المتبقي (SAR)','نسبة السداد','نوع التطابق','الإجراء في دفترة']];
-  clients.forEach(t=>{
-    let invNo='',invClient='',invTotal=0,invRemaining=0,pct='',matchType='',daftraAction='';
-    if(t._match){
-      const ms=Array.isArray(t._match)?t._match:[t._match];
-      invNo=ms.map(m=>m.no).join(' + ');invClient=ms[0].client||'';
-      invTotal=ms.reduce((s,m)=>s+(invoiceBalances[m.id]?.unpaid||0),0);
-      invRemaining=ms.reduce((s,m)=>{const b=invoiceBalances[m.id];return s+(b?b.unpaid-b.paidSoFar:0);},0);
-      pct=invTotal>0?Math.round(parseFloat(t.amount||0)/invTotal*100)+'%':'';
-      const statusMap={exact:'مطابق تام',close:'قريب',partial:'جزئي',combined:'مجموع',manual:'يدوي'};
-      matchType=statusMap[t._matchType]||'';
-      daftraAction='تسجيل دفعة';
-    } else if(t.daftra_action==='waiting_list'){matchType='قائمة الانتظار';daftraAction='مراجعة يدوية';}
-    clientRows.push([t.date||'',t.description||'',t.party||'',parseFloat(t.amount||0),invNo,invClient,invTotal||'',invRemaining||'',pct,matchType,daftraAction]);
-  });
-  const ws2=XLSX.utils.aoa_to_sheet(clientRows);
-  ws2['!cols']=[{wch:12},{wch:30},{wch:22},{wch:18},{wch:18},{wch:28},{wch:18},{wch:16},{wch:12},{wch:14},{wch:16}];
-  styleHeader(ws2,clientRows[0].length);
-  XLSX.utils.book_append_sheet(wb,ws2,'دفعات العملاء');
-
-  // ── Sheet 3: المصاريف ────────────────────────────────────
-  const expenses=allTxns.filter(t=>t.direction==='out');
-  const expRows=[['التاريخ','الوصف','الطرف','التصنيف','المبلغ (SAR)','الإجراء في دفترة','ملاحظات']];
-  expenses.forEach(t=>{
-    const action=t.daftra_action==='record_expense'?'تسجيل مصروف':t.daftra_action==='skip'?'تجاهل':'مراجعة';
-    expRows.push([t.date||'',t.description||'',t.party||'',catNames[t.category]||'',parseFloat(t.amount||0),action,t.notes||'']);
-  });
-  // Totals by category
-  expRows.push([]);expRows.push(['ملخص المصاريف بالتصنيف','','','','','','']);
-  const catTotals={};expenses.forEach(t=>{const c=catNames[t.category]||t.category||'أخرى';catTotals[c]=(catTotals[c]||0)+parseFloat(t.amount||0);});
-  Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).forEach(([cat,total])=>expRows.push([cat,'','','',total,'','']));
-  expRows.push(['الإجمالي','','','',expenses.reduce((s,t)=>s+parseFloat(t.amount||0),0),'','']);
-  const ws3=XLSX.utils.aoa_to_sheet(expRows);
-  ws3['!cols']=[{wch:12},{wch:35},{wch:22},{wch:14},{wch:14},{wch:16},{wch:20}];
-  styleHeader(ws3,expRows[0].length);
-  XLSX.utils.book_append_sheet(wb,ws3,'المصاريف');
-
-  // ── Sheet 4: الملخص الشهري ──────────────────────────────
-  // Group by month
-  const monthly={};
-  allTxns.forEach(t=>{
-    const d=t.date||'';const month=d.substring(0,7)||'غير محدد';
-    if(!monthly[month])monthly[month]={in:0,out:0,clients:0,salary:0,rent:0,china:0,supplier:0,other:0,count:0};
-    const m=monthly[month];m.count++;
-    if(t.direction==='in'){m.in+=parseFloat(t.amount||0);if(t.category==='client_payment')m.clients+=parseFloat(t.amount||0);}
-    else{m.out+=parseFloat(t.amount||0);if(t.category==='salary')m.salary+=parseFloat(t.amount||0);else if(t.category==='rent')m.rent+=parseFloat(t.amount||0);else if(t.category==='china_supplier')m.china+=parseFloat(t.amount||0);else if(t.category==='local_supplier')m.supplier+=parseFloat(t.amount||0);else m.other+=parseFloat(t.amount||0);}
-  });
-  const summaryRows=[
-    ['ملخص كشف الحساب — معالي قرطبة للرخام'],
-    ['البنك:',bankName,'الفترة:',bankPeriod],
-    ['تاريخ التصدير:',new Date().toLocaleDateString('ar-SA')],
-    [],
-    ['الشهر','عدد المعاملات','إجمالي الإيداعات','منها دفعات عملاء','إجمالي السحوبات','منها رواتب','منها إيجارات','منها موردو الصين','منها موردو محليون','مصاريف أخرى','صافي الشهر']
-  ];
-  const months=Object.keys(monthly).sort();
-  months.forEach(m=>{
-    const d=monthly[m];
-    summaryRows.push([m,d.count,d.in,d.clients,d.out,d.salary,d.rent,d.china,d.supplier,d.other,d.in-d.out]);
-  });
-  // Grand total row
-  const totals=months.reduce((acc,m)=>{const d=monthly[m];acc.count+=d.count;acc.in+=d.in;acc.clients+=d.clients;acc.out+=d.out;acc.salary+=d.salary;acc.rent+=d.rent;acc.china+=d.china;acc.supplier+=d.supplier;acc.other+=d.other;return acc;},{count:0,in:0,clients:0,out:0,salary:0,rent:0,china:0,supplier:0,other:0});
-  summaryRows.push(['الإجمالي',totals.count,totals.in,totals.clients,totals.out,totals.salary,totals.rent,totals.china,totals.supplier,totals.other,totals.in-totals.out]);
-
-  const ws4=XLSX.utils.aoa_to_sheet(summaryRows);
-  ws4['!cols']=[{wch:14},{wch:16},{wch:18},{wch:18},{wch:18},{wch:14},{wch:14},{wch:16},{wch:16},{wch:14},{wch:14}];
-  ws4['!merges']=[{s:{r:0,c:0},e:{r:0,c:10}}];
-  styleHeader(ws4,11,4); // header at row index 4
-  XLSX.utils.book_append_sheet(wb,ws4,'الملخص الشهري');
-
-  // ── Download ─────────────────────────────────────────────
   const date=new Date().toISOString().split('T')[0];
-  const filename=`معالي_قرطبة_كشف_بنكي_${date}.xlsx`;
-  XLSX.writeFile(wb,filename);
+  XLSX.writeFile(wb,`معالي_قرطبة_كشف_بنكي_${date}.xlsx`);
 }
 
 function styleHeader(ws,colCount,headerRow=0){
-  for(let c=0;c<colCount;c++){
-    const addr=XLSX.utils.encode_cell({r:headerRow,c});
-    if(!ws[addr])continue;
-    ws[addr].s={font:{bold:true,color:{rgb:'C9A96E'}},fill:{fgColor:{rgb:'1A1A00'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
-  }
+  for(let c=0;c<colCount;c++){const addr=XLSX.utils.encode_cell({r:headerRow,c});if(!ws[addr])continue;ws[addr].s={font:{bold:true,color:{rgb:'C9A96E'}},fill:{fgColor:{rgb:'1A1A00'}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};}
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 async function postToDaftra(){
   const btn=document.getElementById('post-btn');btn.disabled=true;btn.textContent='⏳ جاري التسجيل...';
@@ -744,8 +643,7 @@ async function postToDaftra(){
   }
   document.getElementById('modal-num').textContent=success;
   document.getElementById('modal-text').textContent=`معاملة تم تسجيلها في دفترة${failed>0?' ('+failed+' فشلت)':''}`;
-  document.getElementById('modal').classList.add('show');btn.textContent='✅ سجّل في دفترة';
-  btn.disabled=false;
+  document.getElementById('modal').classList.add('show');btn.textContent='✅ سجّل في دفترة';btn.disabled=false;
 }
 </script>
 </body>
