@@ -345,6 +345,10 @@ def _enrich_transactions(transactions, open_sales, open_purchases):
         if emp_id and emp_id in EMPLOYEE_IDS:
             emp_name = EMPLOYEE_IDS[emp_id]
             emp_cat = EMPLOYEE_CATEGORY.get(emp_id, 'salary')
+            # ✅ If transaction is Iqama/government fee, override to government even if employee name found
+            iqama_keywords = ['iqama', 'إقامة', 'renew', 'expatriate', 'تجديد']
+            if any(kw in combined.lower() for kw in iqama_keywords):
+                emp_cat = 'government'
             tx['category'] = emp_cat
             tx['party'] = emp_name
             tx['notes'] = f"{description} - {emp_name} - ID: {emp_id}"
