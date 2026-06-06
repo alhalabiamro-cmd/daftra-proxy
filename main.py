@@ -115,7 +115,7 @@ VENDOR_NAMES = {
 
 EXCLUDE_KEYWORDS = ['ديزل', 'محروقات', 'diesel', 'fuel']
 CLEANUP_CUTOFF = '2026-04-01'
-EXPENSE_CATS = ['salary', 'rent', 'transportation', 'government', 'bank_fee', 'personal', 'loan', 'other']
+EXPENSE_CATS = ['salary', 'rent', 'transportation', 'government', 'bank_fee', 'personal', 'loan', 'manufacturing', 'utilities', 'internet', 'other']
 
 def should_exclude(text):
     return any(kw in (text or '').lower() for kw in EXCLUDE_KEYWORDS)
