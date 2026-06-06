@@ -75,6 +75,7 @@ ACCOUNT_TO_CLIENT = {
     '599000010006080888888': 'سليمان المهوس',
     '282000010006086606237': 'مؤسسة قوس قزح',
     '077050010006084823853': 'عمرو الحلبي', '539000010006085772890': 'اميرة',
+    '212000010006080319683': 'سلمان العودة',
 }
 
 ACCOUNT_CATEGORY = {
@@ -88,6 +89,7 @@ ACCOUNT_CATEGORY = {
     '602000010006080654780': 'local_supplier', '487000010006085245725': 'local_supplier',
     '599000010006080888888': 'rent', '282000010006086606237': 'government',
     '077050010006084823853': 'personal', '539000010006085772890': 'personal',
+    '212000010006080319683': 'client_payment',
 }
 
 EXPENSE_CATEGORY_ID = {
@@ -183,10 +185,18 @@ def client_name_matches(party, inv_client):
     if acc and acc in ACCOUNT_TO_CLIENT:
         return ACCOUNT_TO_CLIENT[acc].lower() in normalize_name(inv_client)
     p, c = normalize_name(party), normalize_name(inv_client)
+    # Exact word match
     for pw in [w for w in p.split() if len(w) >= 4]:
         if pw in c: return True
     for cw in [w for w in c.split() if len(w) >= 4]:
         if cw in p: return True
+    # Fuzzy: count shared words of 3+ chars
+    p_words = set(w for w in p.split() if len(w) >= 3)
+    c_words = set(w for w in c.split() if len(w) >= 3)
+    if p_words and c_words:
+        shared = len(p_words & c_words)
+        score = shared / min(len(p_words), len(c_words))
+        if score >= 0.5: return True
     return False
 
 def match_payment(amount, open_invoices, party='', description='', invoice_key='Invoice'):
