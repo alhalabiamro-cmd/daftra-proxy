@@ -78,6 +78,7 @@ ACCOUNT_TO_CLIENT = {
     '487000010006085245725': 'شركة هواهوي ستون',
     '487000010006080237735': 'شركة قمم الماس للتجارة',
     '389000010006086633548': 'شركة سما يحيى للتجارة',
+    '275000010006080774253': 'مؤسسة نايف عبدالرحمن',
     '599000010006080888888': 'سليمان المهوس',
     '282000010006086606237': 'مؤسسة قوس قزح',
     '077050010006084823853': 'عمرو الحلبي', '539000010006085772890': 'اميرة',
@@ -276,7 +277,7 @@ TRANSPORT: عبدالحسيب, عمرو بدوي, IBRAHIM
 LOCAL SUPPLIERS: السنا للرخام, الفرات للرخام, اسوار الخليج, هواهوي, جنى مارين, قمم الشام, بيتي النيق, قمم الماس, سما يحيى
 CHINA SUPPLIERS: GBOUEO02, SHENYANG, CNY transfers
 CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, سلمان العودة, سلمان عبدالعزيز, خالد حسان, فهد اليحي, فهد عبدالله, عبدالله سليمان, امجد عبدالعزيز, سلطان عياد, مجمع الطب الجوهري
-OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
+OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, نايف عبدالرحمن/مياه مصنع=utilities, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
 
 category values: client_payment | local_supplier | china_supplier | salary | rent | transportation | government | bank_fee | personal | loan | other
 daftra_action: in→match_invoice | supplier out→match_purchase_invoice | salary/rent/transport/gov/fee/personal/loan→record_expense | else→skip
