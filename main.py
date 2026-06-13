@@ -554,7 +554,12 @@ def record_expense():
             "treasury_id": "3"
         }
         if category in VAT_CATEGORIES:
-            expense_payload["ExpenseTax"] = [{"tax_id": "1", "tax_amount": round(float(amount) * 0.15, 2)}]
+            # Amount from bank is inclusive of 15% VAT — extract base amount
+            # Base = amount / 1.15, Tax = amount - base
+            base_amount = round(float(amount) / 1.15, 2)
+            tax_amount = round(float(amount) - base_amount, 2)
+            expense_payload["amount"] = base_amount
+            expense_payload["ExpenseTax"] = [{"tax_id": "1", "tax_amount": tax_amount}]
         resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, timeout=30,
             json={"Expense": expense_payload})
         resp_data = resp.json()
