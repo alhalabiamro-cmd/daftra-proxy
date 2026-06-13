@@ -117,6 +117,7 @@ EXPENSE_CATEGORY_ID = {
     'personal': '24',
     'loan': '10',
     'other': '24',
+    'assets': '28',
     'manufacturing': '1',
     'utilities': '27',
     'internet': '9',
@@ -131,7 +132,7 @@ VENDOR_NAMES = {
 
 EXCLUDE_KEYWORDS = ['ديزل', 'محروقات', 'diesel', 'fuel']
 CLEANUP_CUTOFF = '2026-04-01'
-EXPENSE_CATS = ['salary', 'rent', 'transportation', 'government', 'bank_fee', 'personal', 'loan', 'manufacturing', 'utilities', 'internet', 'other']
+EXPENSE_CATS = ['salary', 'rent', 'transportation', 'government', 'bank_fee', 'personal', 'loan', 'manufacturing', 'utilities', 'internet', 'assets', 'other']
 
 def should_exclude(text):
     return any(kw in (text or '').lower() for kw in EXCLUDE_KEYWORDS)
@@ -277,7 +278,7 @@ TRANSPORT: عبدالحسيب, عمرو بدوي, IBRAHIM
 LOCAL SUPPLIERS: السنا للرخام, الفرات للرخام, اسوار الخليج, هواهوي, جنى مارين, قمم الشام, بيتي النيق, قمم الماس, سما يحيى
 CHINA SUPPLIERS: GBOUEO02, SHENYANG, CNY transfers
 CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, سلمان العودة, سلمان عبدالعزيز, خالد حسان, فهد اليحي, فهد عبدالله, عبدالله سليمان, امجد عبدالعزيز, سلطان عياد, مجمع الطب الجوهري
-OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, العصيمي/حديد/استاندات=loan, ابيات الاندلس/أبيات الاندلس/أبيات=manufacturing, نايف عبدالرحمن/مياه مصنع=utilities, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
+OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, العصيمي/حديد/استاندات/معدات مصنع=assets, ابيات الاندلس/أبيات الاندلس/أبيات=manufacturing, عبدالولي/فري لانسر/freelancer=manufacturing, نايف عبدالرحمن/مياه مصنع=utilities, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
 
 category values: client_payment | local_supplier | china_supplier | salary | rent | transportation | government | bank_fee | personal | loan | other
 daftra_action: in→match_invoice | supplier out→match_purchase_invoice | salary/rent/transport/gov/fee/personal/loan→record_expense | else→skip
