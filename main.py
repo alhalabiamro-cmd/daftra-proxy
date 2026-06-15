@@ -173,24 +173,33 @@ def cors(r):
     return r
 
 def get_open_invoices(invoice_type='sales'):
+    """Fetch all invoices and filter for those with unpaid balance > 0.
+    We deliberately do NOT filter by payment_status server-side — Daftra's status
+    codes (including 'Not Submitted' / draft invoices) are inconsistent, and a
+    status-based filter can silently exclude valid unpaid invoices. Filtering by
+    summary_unpaid > 0 in Python is reliable regardless of status."""
     try:
         all_invoices, endpoint = [], 'invoices' if invoice_type == 'sales' else 'purchase_invoices'
-        for status in ['0', '1', '2', '3', '4']:
-            page = 1
-            while True:
-                resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
-                                    params={'payment_status': status, 'limit': 50, 'page': page})
-                invoices = resp.json().get('data', [])
-                if not invoices: break
-                all_invoices.extend(invoices)
-                if len(invoices) < 50: break
-                page += 1
-        seen, unique = set(), []
         key = 'Invoice' if invoice_type == 'sales' else 'PurchaseInvoice'
+        page = 1
+        while True:
+            resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
+                                params={'limit': 50, 'page': page}, timeout=30)
+            invoices = resp.json().get('data', [])
+            if not invoices: break
+            all_invoices.extend(invoices)
+            if len(invoices) < 50: break
+            page += 1
+            if page > 30: break  # safety cap (~1500 invoices)
+        unique = []
+        seen = set()
         for inv in all_invoices:
-            inv_id = inv.get(key, {}).get('id')
-            if inv_id and inv_id not in seen:
-                seen.add(inv_id); unique.append(inv)
+            inv_data = inv.get(key, {})
+            inv_id = inv_data.get('id')
+            if not inv_id or inv_id in seen: continue
+            unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
+            if unpaid <= 0: continue
+            seen.add(inv_id); unique.append(inv)
         return unique
     except:
         return []
