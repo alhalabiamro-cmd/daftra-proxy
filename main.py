@@ -87,6 +87,7 @@ ACCOUNT_TO_CLIENT = {
     '292000010006080191911': 'خالد حسان علام',
     '275000010006080071171': 'فهد عبدالله علي اليحي',
     '331000010006080115368': 'عبدالكريم محمد رياض طيارة',
+    '644000110006080117811': 'هاجس محمد فراج الدوسري',
     '331000010006086567547': 'عبدالحسيب',
 }
 
@@ -106,6 +107,7 @@ ACCOUNT_CATEGORY = {
     '292000010006080191911': 'client_payment',
     '275000010006080071171': 'client_payment',
     '331000010006080115368': 'manufacturing',
+    '644000110006080117811': 'client_payment',
 }
 
 EXPENSE_CATEGORY_ID = {
@@ -178,6 +180,37 @@ def get_open_invoices(invoice_type='sales'):
     except:
         return []
 
+# Consonant-skeleton transliteration: long vowels (ا و ي ى) and ء are dropped,
+# since Latin transliterations of Arabic names vary wildly in vowels (Mohammed/Muhammad/
+# Mohamed, Khalid/Khaled, etc). Comparing consonant skeletons as subsequences is far more
+# robust than trying to guess exact vowel mappings.
+ARABIC_SKELETON_MAP = {
+    'ا': '', 'أ': '', 'إ': '', 'آ': '', 'ى': '', 'و': '', 'ي': '', 'ء': '',
+    'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd',
+    'ذ': 'th', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd',
+    'ط': 't', 'ظ': 'z', 'ع': '', 'غ': 'gh', 'ف': 'f', 'ق': 'q', 'ك': 'k',
+    'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'ة': '',
+}
+LATIN_VOWELS = set('aeiouwy')
+
+def name_skeleton(text):
+    """Build a consonant-only skeleton for cross-script (Arabic<->English) name matching."""
+    out = []
+    for ch in (text or '').lower():
+        if ch in ARABIC_SKELETON_MAP:
+            out.append(ARABIC_SKELETON_MAP[ch])
+        elif ch.isalpha() and ch not in LATIN_VOWELS:
+            out.append(ch)
+        elif ch.isdigit():
+            out.append(ch)
+    return ''.join(out)
+
+def is_subsequence(short, long_):
+    """True if all characters of `short` appear in `long_` in order (not necessarily contiguous)."""
+    if not short: return False
+    it = iter(long_)
+    return all(c in it for c in short)
+
 def normalize_name(name):
     name = (name or '').lower().strip()
     for alias, canonical in CLIENT_ALIASES.items():
@@ -214,6 +247,25 @@ def client_name_matches(party, inv_client):
         shared = len(p_words & c_words)
         score = shared / min(len(p_words), len(c_words))
         if score >= 0.5: return True
+    # ✅ Cross-script (Arabic <-> English) fuzzy matching via consonant skeletons.
+    # e.g. bank text "HAJIS MOHAMMED FRAJ ALDOSARI" vs Daftra client "هاجس الدوسري"
+    p_words = [w for w in p.split() if len(w) >= 3]
+    c_words = [w for w in c.split() if len(w) >= 3]
+    p_skeletons = [name_skeleton(w) for w in p_words]
+    c_skeletons = [name_skeleton(w) for w in c_words]
+    p_skeletons = [s for s in p_skeletons if len(s) >= 2]
+    c_skeletons = [s for s in c_skeletons if len(s) >= 2]
+    if p_skeletons and c_skeletons:
+        word_matches = 0
+        for ps in p_skeletons:
+            for cs in c_skeletons:
+                shorter, longer = (ps, cs) if len(ps) <= len(cs) else (cs, ps)
+                if is_subsequence(shorter, longer):
+                    word_matches += 1
+                    break
+        ref_count = min(len(p_skeletons), len(c_skeletons))
+        if ref_count and word_matches / ref_count >= 0.5:
+            return True
     return False
 
 def match_payment(amount, open_invoices, party='', description='', invoice_key='Invoice'):
@@ -234,7 +286,8 @@ def match_payment(amount, open_invoices, party='', description='', invoice_key='
             return [{'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'),
                      'client': inv_data.get(client_field, ''), 'amount': inv_amount, 'confidence': 'exact'}]
     search_pools = [client_invoices, open_invoices] if client_invoices else [open_invoices]
-    for pool in search_pools:
+    for pi, pool in enumerate(search_pools):
+        is_client_pool = (pi == 0 and client_invoices)
         matches = []
         for inv in pool:
             inv_data = inv.get(invoice_key, {})
@@ -248,6 +301,22 @@ def match_payment(amount, open_invoices, party='', description='', invoice_key='
                                  'client': inv_data.get(client_field, ''), 'amount': inv_amount,
                                  'confidence': 'exact' if diff < 0.01 else 'close'})
         if matches: return matches
+        # ✅ Partial payment: if name matches this client's invoice and amount is a plausible
+        # partial payment (10%-100% of invoice total), link it as a partial match.
+        if is_client_pool:
+            best_partial = None
+            for inv in pool:
+                inv_data = inv.get(invoice_key, {})
+                unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
+                total = float(inv_data.get('summary_total', 0) or 0)
+                inv_amount = unpaid if unpaid > 0 else total
+                if inv_amount <= 0: continue
+                if amount < inv_amount and amount / inv_amount >= 0.1:
+                    if not best_partial or inv_amount < best_partial['amount']:
+                        best_partial = {'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'),
+                                         'client': inv_data.get(client_field, ''), 'amount': inv_amount,
+                                         'confidence': 'partial'}
+            if best_partial: return [best_partial]
         for i in range(len(pool)):
             for j in range(i+1, len(pool)):
                 inv1, inv2 = pool[i].get(invoice_key, {}), pool[j].get(invoice_key, {})
@@ -277,7 +346,7 @@ PERSONAL: عمرو الحلبي(2229429275), اميرة(2229429267)
 TRANSPORT: عبدالحسيب, عمرو بدوي, IBRAHIM
 LOCAL SUPPLIERS: السنا للرخام, الفرات للرخام, اسوار الخليج, هواهوي, جنى مارين, قمم الشام, بيتي النيق, قمم الماس, سما يحيى
 CHINA SUPPLIERS: GBOUEO02, SHENYANG, CNY transfers
-CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, سلمان العودة, سلمان عبدالعزيز, خالد حسان, فهد اليحي, فهد عبدالله, عبدالله سليمان, امجد عبدالعزيز, سلطان عياد, مجمع الطب الجوهري
+CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, سلمان العودة, سلمان عبدالعزيز, خالد حسان, فهد اليحي, فهد عبدالله, عبدالله سليمان, امجد عبدالعزيز, سلطان عياد, مجمع الطب الجوهري, هاجس الدوسري
 OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, العصيمي/حديد/استاندات/معدات مصنع=assets, ابيات الاندلس/أبيات الاندلس/أبيات=manufacturing, عبدالولي/فري لانسر/freelancer=manufacturing, نايف عبدالرحمن/مياه مصنع=utilities, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
 
 category values: client_payment | local_supplier | china_supplier | salary | rent | transportation | government | bank_fee | personal | loan | other
