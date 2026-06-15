@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, make_response, send_file
-import requests, os, anthropic, json, re, threading, uuid
+import requests, os, anthropic, json, re, threading, uuid, time
 
 app = Flask(__name__)
 
@@ -9,7 +9,28 @@ ANTHROPIC_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 
 _jobs = {}
 
+def _job_path(job_id):
+    return f"/tmp/job_{job_id}.json"
+
+def _save_job(job_id, data):
+    try:
+        with open(_job_path(job_id), 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception as e:
+        print(f"Save job error: {e}")
+
+def _load_job(job_id):
+    try:
+        with open(_job_path(job_id), encoding='utf-8') as f:
+            return json.load(f)
+    except:
+        return None
+
 CLIENT_ALIASES = {
+    'سلمان عبدالعزيز': 'سلمان العودة',
+    'خالد حسان': 'خالد حسان علام',
+    'خالد حسين': 'خالد حسان علام',
+    'سلمان العودة': 'سلمان العودة',
     'مهجة': 'ريميندر', 'reminder': 'ريميندر',
     'الخدمات التجارية المتكاملة': 'الخدمات التجارية المتكاملة',
     'خدمات متكاملة': 'الخدمات التجارية المتكاملة',
@@ -55,9 +76,19 @@ ACCOUNT_TO_CLIENT = {
     '538000010006080000223': 'شركة الفرات للرخام',
     '602000010006080654780': 'شركة اسوار الخليج',
     '487000010006085245725': 'شركة هواهوي ستون',
+    '487000010006080237735': 'شركة قمم الماس للتجارة',
+    '389000010006086633548': 'شركة سما يحيى للتجارة',
+    '275000010006080774253': 'مؤسسة نايف عبدالرحمن',
     '599000010006080888888': 'سليمان المهوس',
     '282000010006086606237': 'مؤسسة قوس قزح',
     '077050010006084823853': 'عمرو الحلبي', '539000010006085772890': 'اميرة',
+    '212000010006080319683': 'سلمان العودة',
+    '555000010006080993391': 'سلطان عياد عبد الفريدي',
+    '292000010006080191911': 'خالد حسان علام',
+    '275000010006080071171': 'فهد عبدالله علي اليحي',
+    '331000010006080115368': 'عبدالكريم محمد رياض طيارة',
+    '644000110006080117811': 'هاجس محمد فراج الدوسري',
+    '331000010006086567547': 'عبدالحسيب',
 }
 
 ACCOUNT_CATEGORY = {
@@ -71,16 +102,54 @@ ACCOUNT_CATEGORY = {
     '602000010006080654780': 'local_supplier', '487000010006085245725': 'local_supplier',
     '599000010006080888888': 'rent', '282000010006086606237': 'government',
     '077050010006084823853': 'personal', '539000010006085772890': 'personal',
+    '212000010006080319683': 'client_payment',
+    '555000010006080993391': 'client_payment',
+    '292000010006080191911': 'client_payment',
+    '275000010006080071171': 'client_payment',
+    '331000010006080115368': 'manufacturing',
+    '644000110006080117811': 'client_payment',
 }
 
-EXPENSE_ACCOUNT_ID = {
-    'salary': '56', 'rent': '52', 'transportation': '52',
-    'government': '52', 'bank_fee': '52', 'personal': '54',
-    'loan': '54', 'other': '54',
+EXPENSE_CATEGORY_ID = {
+    'salary': '23',
+    'rent': '19',
+    'transportation': '26',
+    'government': '16',
+    'bank_fee': '25',
+    'personal': '24',
+    'loan': '10',
+    'other': '24',
+    'assets': '28',
+    'manufacturing': '1',
+    'utilities': '27',
+    'internet': '9',
 }
+
+# Categories that include 15% VAT (tax_id=1)
+VAT_CATEGORIES = {'utilities', 'internet', 'bank_fee', 'manufacturing'}
+
+VENDOR_NAMES = {
+    'بيتي النيق': {'supplier_name': 'بيتي النيق', 'daftra_action': 'match_purchase_invoice'},
+}
+
+# ✅ Deterministic category overrides for known outgoing vendors/keywords.
+# Applied AFTER Claude's classification to guarantee consistency regardless of LLM variance.
+# Format: (keyword_to_search_for, forced_category)
+CATEGORY_KEYWORD_OVERRIDES = [
+    ('ابيات الاندلس', 'manufacturing'), ('أبيات الاندلس', 'manufacturing'), ('ابيات الأندلس', 'manufacturing'),
+    ('العصيمي', 'assets'),
+    ('طيارة', 'manufacturing'), ('كهربجي', 'manufacturing'), ('كهربائي', 'manufacturing'),
+    ('عبدالولي راجح', 'manufacturing'), ('عبدالولى راجح', 'manufacturing'),
+    ('مؤسسة نايف عبدالرحمن', 'utilities'),
+    ('الاختيار الامثل', 'manufacturing'), ('الختيار المثل', 'manufacturing'), ('الاختيار المثل', 'manufacturing'),
+    ('SAUDI ELECTRIC', 'utilities'), ('كهرباء وميا', 'utilities'), ('مياه الوطنية', 'utilities'), ('NWC', 'utilities'),
+    ('STC', 'internet'), ('زين', 'internet'), ('موبايلي', 'internet'), ('STCPAY', 'internet'),
+    ('مؤسسة مغر للمقاولات', 'local_supplier'),
+]
 
 EXCLUDE_KEYWORDS = ['ديزل', 'محروقات', 'diesel', 'fuel']
 CLEANUP_CUTOFF = '2026-04-01'
+EXPENSE_CATS = ['salary', 'rent', 'transportation', 'government', 'bank_fee', 'personal', 'loan', 'manufacturing', 'utilities', 'internet', 'assets', 'other']
 
 def should_exclude(text):
     return any(kw in (text or '').lower() for kw in EXCLUDE_KEYWORDS)
@@ -104,27 +173,67 @@ def cors(r):
     return r
 
 def get_open_invoices(invoice_type='sales'):
+    """Fetch all invoices and filter for those with unpaid balance > 0.
+    We deliberately do NOT filter by payment_status server-side — Daftra's status
+    codes (including 'Not Submitted' / draft invoices) are inconsistent, and a
+    status-based filter can silently exclude valid unpaid invoices. Filtering by
+    summary_unpaid > 0 in Python is reliable regardless of status."""
     try:
         all_invoices, endpoint = [], 'invoices' if invoice_type == 'sales' else 'purchase_invoices'
-        for status in ['0', '1', '2', '3', '4']:
-            page = 1
-            while True:
-                resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
-                                    params={'payment_status': status, 'limit': 50, 'page': page})
-                invoices = resp.json().get('data', [])
-                if not invoices: break
-                all_invoices.extend(invoices)
-                if len(invoices) < 50: break
-                page += 1
-        seen, unique = set(), []
         key = 'Invoice' if invoice_type == 'sales' else 'PurchaseInvoice'
+        page = 1
+        while True:
+            resp = requests.get(f"{DAFTRA_BASE}/{endpoint}", headers={'APIKEY': APIKEY},
+                                params={'limit': 50, 'page': page}, timeout=30)
+            invoices = resp.json().get('data', [])
+            if not invoices: break
+            all_invoices.extend(invoices)
+            if len(invoices) < 50: break
+            page += 1
+            if page > 30: break  # safety cap (~1500 invoices)
+        unique = []
+        seen = set()
         for inv in all_invoices:
-            inv_id = inv.get(key, {}).get('id')
-            if inv_id and inv_id not in seen:
-                seen.add(inv_id); unique.append(inv)
+            inv_data = inv.get(key, {})
+            inv_id = inv_data.get('id')
+            if not inv_id or inv_id in seen: continue
+            unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
+            if unpaid <= 0: continue
+            seen.add(inv_id); unique.append(inv)
         return unique
     except:
         return []
+
+# Consonant-skeleton transliteration: long vowels (ا و ي ى) and ء are dropped,
+# since Latin transliterations of Arabic names vary wildly in vowels (Mohammed/Muhammad/
+# Mohamed, Khalid/Khaled, etc). Comparing consonant skeletons as subsequences is far more
+# robust than trying to guess exact vowel mappings.
+ARABIC_SKELETON_MAP = {
+    'ا': '', 'أ': '', 'إ': '', 'آ': '', 'ى': '', 'و': '', 'ي': '', 'ء': '',
+    'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h', 'خ': 'kh', 'د': 'd',
+    'ذ': 'th', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd',
+    'ط': 't', 'ظ': 'z', 'ع': '', 'غ': 'gh', 'ف': 'f', 'ق': 'q', 'ك': 'k',
+    'ل': 'l', 'م': 'm', 'ن': 'n', 'ه': 'h', 'ة': '',
+}
+LATIN_VOWELS = set('aeiouwy')
+
+def name_skeleton(text):
+    """Build a consonant-only skeleton for cross-script (Arabic<->English) name matching."""
+    out = []
+    for ch in (text or '').lower():
+        if ch in ARABIC_SKELETON_MAP:
+            out.append(ARABIC_SKELETON_MAP[ch])
+        elif ch.isalpha() and ch not in LATIN_VOWELS:
+            out.append(ch)
+        elif ch.isdigit():
+            out.append(ch)
+    return ''.join(out)
+
+def is_subsequence(short, long_):
+    """True if all characters of `short` appear in `long_` in order (not necessarily contiguous)."""
+    if not short: return False
+    it = iter(long_)
+    return all(c in it for c in short)
 
 def normalize_name(name):
     name = (name or '').lower().strip()
@@ -150,11 +259,50 @@ def client_name_matches(party, inv_client):
     if acc and acc in ACCOUNT_TO_CLIENT:
         return ACCOUNT_TO_CLIENT[acc].lower() in normalize_name(inv_client)
     p, c = normalize_name(party), normalize_name(inv_client)
+    # Exact word match
     for pw in [w for w in p.split() if len(w) >= 4]:
         if pw in c: return True
     for cw in [w for w in c.split() if len(w) >= 4]:
         if cw in p: return True
+    # Fuzzy: count shared words of 3+ chars. Require >=2 shared words when both names
+    # have >=2 candidate words, to avoid false positives from a single common first
+    # name (e.g. \"محمد\") shared by unrelated people.
+    p_words_set = set(w for w in p.split() if len(w) >= 3)
+    c_words_set = set(w for w in c.split() if len(w) >= 3)
+    if p_words_set and c_words_set:
+        shared = len(p_words_set & c_words_set)
+        min_len = min(len(p_words_set), len(c_words_set))
+        if min_len >= 2:
+            if shared >= 2: return True
+        elif min_len == 1:
+            if shared >= 1: return True
+    # ✅ Cross-script (Arabic <-> English) fuzzy matching via consonant skeletons.
+    # e.g. bank text "HAJIS MOHAMMED FRAJ ALDOSARI" vs Daftra client "هاجس الدوسري"
+    p_words = [w for w in p.split() if len(w) >= 3]
+    c_words = [w for w in c.split() if len(w) >= 3]
+    p_skeletons = [name_skeleton(w) for w in p_words]
+    c_skeletons = [name_skeleton(w) for w in c_words]
+    p_skeletons = [s for s in p_skeletons if len(s) >= 2]
+    c_skeletons = [s for s in c_skeletons if len(s) >= 2]
+    if p_skeletons and c_skeletons:
+        word_matches = 0
+        for ps in p_skeletons:
+            for cs in c_skeletons:
+                shorter, longer = (ps, cs) if len(ps) <= len(cs) else (cs, ps)
+                if is_subsequence(shorter, longer):
+                    word_matches += 1
+                    break
+        ref_count = min(len(p_skeletons), len(c_skeletons))
+        if ref_count >= 2:
+            if word_matches >= 2: return True
+        elif ref_count == 1:
+            if word_matches >= 1: return True
     return False
+
+def _invoice_amount(inv_data):
+    unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
+    total = float(inv_data.get('summary_total', 0) or 0)
+    return unpaid if unpaid > 0 else total
 
 def match_payment(amount, open_invoices, party='', description='', invoice_key='Invoice'):
     combined_text = f"{party} {description}"
@@ -163,14 +311,13 @@ def match_payment(amount, open_invoices, party='', description='', invoice_key='
     client_field = 'client_business_name' if invoice_key == 'Invoice' else 'supplier_name'
     client_invoices = [inv for inv in open_invoices
                        if client_name_matches(combined_text, inv.get(invoice_key, {}).get(client_field, ''))]
-    search_pools = [client_invoices, open_invoices] if client_invoices else [open_invoices]
-    for pool in search_pools:
+
+    # ✅ PRIORITY 1: name-matched invoices — exact/close (≤5%) or partial (10-100%)
+    if client_invoices:
         matches = []
-        for inv in pool:
+        for inv in client_invoices:
             inv_data = inv.get(invoice_key, {})
-            unpaid = float(inv_data.get('summary_unpaid', 0) or 0)
-            total = float(inv_data.get('summary_total', 0) or 0)
-            inv_amount = unpaid if unpaid > 0 else total
+            inv_amount = _invoice_amount(inv_data)
             if inv_amount <= 0: continue
             diff = abs(amount - inv_amount) / inv_amount
             if diff <= 0.05:
@@ -178,84 +325,220 @@ def match_payment(amount, open_invoices, party='', description='', invoice_key='
                                  'client': inv_data.get(client_field, ''), 'amount': inv_amount,
                                  'confidence': 'exact' if diff < 0.01 else 'close'})
         if matches: return matches
-        for i in range(len(pool)):
-            for j in range(i+1, len(pool)):
-                inv1, inv2 = pool[i].get(invoice_key, {}), pool[j].get(invoice_key, {})
-                a1 = float(inv1.get('summary_unpaid', 0) or inv1.get('summary_total', 0) or 0)
-                a2 = float(inv2.get('summary_unpaid', 0) or inv2.get('summary_total', 0) or 0)
-                combined = a1 + a2
-                if combined > 0 and abs(amount - combined) / combined <= 0.05:
-                    return [{'invoice_id': f"{inv1.get('id')},{inv2.get('id')}",
-                              'invoice_no': f"{inv1.get('no')} + {inv2.get('no')}",
-                              'client': inv1.get(client_field, ''), 'amount': combined, 'confidence': 'combined'}]
+        best_partial = None
+        for inv in client_invoices:
+            inv_data = inv.get(invoice_key, {})
+            inv_amount = _invoice_amount(inv_data)
+            if inv_amount <= 0: continue
+            if amount < inv_amount and amount / inv_amount >= 0.1:
+                if not best_partial or inv_amount < best_partial['amount']:
+                    best_partial = {'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'),
+                                     'client': inv_data.get(client_field, ''), 'amount': inv_amount,
+                                     'confidence': 'partial'}
+        if best_partial: return [best_partial]
+
+    # ✅ PRIORITY 2 (fallback, no name match found above): exact amount (<1%) across ALL invoices
+    for inv in open_invoices:
+        inv_data = inv.get(invoice_key, {})
+        inv_amount = _invoice_amount(inv_data)
+        if inv_amount <= 0: continue
+        if abs(amount - inv_amount) / inv_amount < 0.01:
+            return [{'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'),
+                     'client': inv_data.get(client_field, ''), 'amount': inv_amount, 'confidence': 'exact'}]
+
+    # ✅ PRIORITY 3 (fallback): close match (≤5%) across ALL invoices
+    matches = []
+    for inv in open_invoices:
+        inv_data = inv.get(invoice_key, {})
+        inv_amount = _invoice_amount(inv_data)
+        if inv_amount <= 0: continue
+        diff = abs(amount - inv_amount) / inv_amount
+        if diff <= 0.05:
+            matches.append({'invoice_id': inv_data.get('id'), 'invoice_no': inv_data.get('no'),
+                             'client': inv_data.get(client_field, ''), 'amount': inv_amount,
+                             'confidence': 'exact' if diff < 0.01 else 'close'})
+    if matches: return matches
+
+    # ✅ PRIORITY 4 (fallback): combined two-invoice match across ALL invoices
+    for i in range(len(open_invoices)):
+        for j in range(i+1, len(open_invoices)):
+            inv1, inv2 = open_invoices[i].get(invoice_key, {}), open_invoices[j].get(invoice_key, {})
+            a1, a2 = _invoice_amount(inv1), _invoice_amount(inv2)
+            combined = a1 + a2
+            if combined > 0 and abs(amount - combined) / combined <= 0.05:
+                return [{'invoice_id': f"{inv1.get('id')},{inv2.get('id')}",
+                          'invoice_no': f"{inv1.get('no')} + {inv2.get('no')}",
+                          'client': inv1.get(client_field, ''), 'amount': combined, 'confidence': 'combined'}]
     return []
 
-PROMPT = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
+BATCH_PROMPT = """You are an accountant for Maaly Qurtoba Marble Company in Saudi Arabia.
+Classify the transactions below. Return ONLY valid JSON — no extra text, no markdown.
 
-CRITICAL RULE: Every incoming payment (direction=in) is ALWAYS a client_payment. No exceptions.
-CRITICAL RULE: اعمال الشوري is a client REFUND (direction=out, category=other, daftra_action=skip).
-AlRajhi internal transfers: ignore the label, classify by direction and recipient.
+RULES:
+- direction=in → ALWAYS client_payment, daftra_action=match_invoice (NO EXCEPTIONS — even 'Internal transfer in' is a client_payment)
+- direction=out → classify by recipient
+- 'Internal transfer in' / 'عملية تحويل داخلية' → direction=in, category=client_payment
+- 'Fast transfer from' / 'حوالت سريع' with direction=in → client_payment
+- description: REQUIRED — copy the raw transaction text, never leave empty
+- notes: REQUIRED — include employee name + ID if salary/government, e.g. "تجديد إقامة - بلال جلال غانم - ID: 2155703453"
+- daftra_action: REQUIRED — must be one of: match_invoice | match_purchase_invoice | record_expense | skip
 
-EMPLOYEES (salary): بلال جلال غانم(2155703453), MD ANIS(2500894296), MD JAULHAS MOLLA(2549846075), محمد المجيدل(1123351007), TAUFEEK AHMAD(2544919612), TAREKH HUSEN(2544919596), فهد البطي(1131768192), احمد محمد حماد(2568475756), فهد العليان(1126192390), RAMJAN MANSHUR(2602072692), NOORUL HODA KHAN(2602072783), AFROJ SALMANI(2612225173), SAVEJ ABDUL RAHMAN(2619122530), SADDAM KHAN(2630277883), MD ARIF HOSSAIN(2630277933), WAJID ALI(2636857225), احمد الفضل(1136786959), MD AMAN ULLAH(2576905463), يزن الحلبي(2229429291), KAMAL HOSSAIN(2551964485), SIKANDAR GUPTA(2574846610), SALAMUDDIN, سلام مبلط, صلاح مبلط, ابو ريناد, مالك نواف, ابو حسين, عبد الله فرع الرياض, مالك, معتز, MOATAZ
-PERSONAL (owner draws): عمرو الحلبي(2229429275), اميرة(2229429267)
-TRANSPORTATION: عبدالحسيب, عمرو بدوي, IBRAHIM
-LOCAL SUPPLIERS: واهوي, أسوار الخليج, اسوار الخليج, السنا للرخام, الفرات للرخام, جنى مارين, قمم الشام
-CHINA SUPPLIERS: GBOUEO02, SHENYANG, China/CNY transfers
-CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, ماهر حباب, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH
-OTHER: سليمان المهوس=rent Buraydah, جي مارين=rent Riyadh, LOANFLEET=loan, Mudud=salary, نقاط بيع MALI QURTOBA=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate Renew Iqama=government
+EMPLOYEES (salary): بلال جلال غانم(2155703453), MD ANIS(2500894296), MD JAULHAS MOLLA(2549846075), محمد المجيدل(1123351007), TAUFEEK AHMAD(2544919612), TAREKH HUSEN(2544919596), فهد البطي(1131768192), احمد محمد حماد(2568475756), فهد العليان(1126192390), RAMJAN MANSHUR(2602072692), NOORUL HODA KHAN(2602072783), AFROJ SALMANI(2612225173), SAVEJ ABDUL RAHMAN(2619122530), SADDAM KHAN(2630277883), MD ARIF HOSSAIN(2630277933), WAJID ALI(2636857225), احمد الفضل(1136786959), MD AMAN ULLAH(2576905463), يزن الحلبي(2229429291), KAMAL HOSSAIN(2551964485), SIKANDAR GUPTA(2574846610), SALAMUDDIN, سلام مبلط, صلاح مبلط, ابو ريناد, مالك نواف, ابو حسين, MOATAZ
+PERSONAL: عمرو الحلبي(2229429275), اميرة(2229429267)
+TRANSPORT: عبدالحسيب, عمرو بدوي, IBRAHIM
+LOCAL SUPPLIERS: السنا للرخام, الفرات للرخام, اسوار الخليج, هواهوي, جنى مارين, قمم الشام, بيتي النيق, قمم الماس, سما يحيى, مؤسسة مغر للمقاولات
+CHINA SUPPLIERS: GBOUEO02, SHENYANG, CNY transfers
+CLIENTS: ريميندر, مهجة, MISHARY ALZAMIL, SHARAF ALTALHI, هشام المسيند, نور البنعلى, اسامه العنزي, وليد الجحيش, سفيان الزامل, الخدمات التجارية المتكاملة, علي سعود, مؤسسة الجبر, شركة ذكي للدعاية, CAMBNI ALROMEH, سلمان العودة, سلمان عبدالعزيز, خالد حسان, فهد اليحي, فهد عبدالله, عبدالله سليمان, امجد عبدالعزيز, سلطان عياد, مجمع الطب الجوهري, هاجس الدوسري
+OTHER: طيارة/كهربائي/كهربجي/electrician=manufacturing, العصيمي/حديد/استاندات/معدات مصنع=assets, ابيات الاندلس/أبيات الاندلس/أبيات=manufacturing, عبدالولي/فري لانسر/freelancer=manufacturing, نايف عبدالرحمن/مياه مصنع=utilities, سليمان المهوس=rent, جي مارين=rent, LOANFLEET=loan, Mudud=salary, نقاط بيع=client_payment, بطاقة ائتمانية=bank_fee, قوس قزح=government, Ministry of Labor=government, Expatriate/Renew Iqama=government, SAUDI ELECTRIC/SEC/كهرباء=utilities, STC/زين/موبايلي/اتصالات=internet, STCPAY=internet, مياه=utilities, NWC=utilities, الاختيار الامثل/الختيار المثل/الاختيار المثل/تخليص جمركي/جمارك/customs clearance=manufacturing
 
-NOTES: always include ID numbers, names, references. Example: "تجديد إقامة - بلال جلال غانم - ID: 2155703453"
+category values: client_payment | local_supplier | china_supplier | salary | rent | transportation | government | bank_fee | personal | loan | other
+daftra_action: in→match_invoice | supplier out→match_purchase_invoice | salary/rent/transport/gov/fee/personal/loan→record_expense | else→skip
 
-daftra_action: client_payment IN→match_invoice | local/china supplier OUT→match_purchase_invoice | salary/rent/transport/gov/fee/personal/loan→record_expense | else→skip
+Return ONLY: {"transactions":[{"date":"YYYY-MM-DD","description":"COPY RAW TEXT HERE","amount":0,"direction":"in","category":"","party":"","daftra_action":"record_expense","notes":"employee name - ID: XXXXXXXXXX"}]}"""
 
-Return ONLY valid JSON: {"bank":"","period":"","opening":0,"closing":0,"transactions":[{"date":"YYYY-MM-DD","description":"","amount":0,"direction":"in or out","category":"","party":"","daftra_action":"","notes":""}]}"""
+def _call_claude_batch(lines, ai_client):
+    """Call Claude with a batch of transaction lines. Returns enriched list."""
+    batch_text = '\n'.join(lines)
+    msg = ai_client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": BATCH_PROMPT + "\n\nTRANSACTIONS:\n" + batch_text}]
+    )
+    raw = msg.content[0].text
+    m = re.search(r'\{[\s\S]*\}', raw)
+    parsed = json.loads(m.group() if m else raw)
+    txns = parsed.get('transactions', [])
+
+    # ✅ ALWAYS use raw transaction line as description — guaranteed to have real text
+    # Fix: ALL incoming transactions are client_payment, regardless of what
+    # category Claude assigned.
+    for tx in txns:
+        if tx.get('direction') == 'in' and tx.get('category') != 'client_payment':
+            tx['category'] = 'client_payment'
+            tx['daftra_action'] = 'match_invoice'
+
+    CATEGORY_WORDS = {'salary','rent','transportation','government','bank_fee','personal','loan',
+                      'other','رواتب','إيجار','نقل','حكومي','رسوم','شخصي','قرض','أخرى',
+                      'client_payment','local_supplier','china_supplier','record_expense','skip'}
+    for i, tx in enumerate(txns):
+        raw_line = lines[i] if i < len(lines) else ''
+        tx['_raw_line'] = raw_line
+        claude_desc = (tx.get('description') or '').strip()
+        # If Claude returned empty or just a category word, use raw line
+        if not claude_desc or claude_desc.lower() in CATEGORY_WORDS:
+            tx['description'] = raw_line
+        else:
+            tx['description'] = claude_desc
+        # Notes: combine Claude's description with raw line for full context
+        tx['notes'] = claude_desc if claude_desc and claude_desc.lower() not in CATEGORY_WORDS else raw_line
+        if not (tx.get('daftra_action') or '').strip():
+            cat = tx.get('category', '')
+            if tx.get('direction') == 'in':
+                tx['daftra_action'] = 'match_invoice'
+            elif cat in EXPENSE_CATS:
+                tx['daftra_action'] = 'record_expense'
+            elif cat in ['local_supplier', 'china_supplier']:
+                tx['daftra_action'] = 'match_purchase_invoice'
+            else:
+                tx['daftra_action'] = 'skip'
+    return txns
+
+def _enrich_transactions(transactions, open_sales, open_purchases):
+    for tx in transactions:
+        amt = float(tx.get('amount', 0))
+        party = tx.get('party', '') or ''
+        description = tx.get('description', '') or ''
+        raw_line = tx.get('_raw_line', '') or ''
+        combined = f"{party} {description} {raw_line}"
+
+        for vendor_key, vendor_info in VENDOR_NAMES.items():
+            if vendor_key in combined:
+                tx['category'] = 'local_supplier'
+                tx['party'] = vendor_info['supplier_name']
+                tx['daftra_action'] = vendor_info['daftra_action']
+                break
+
+        # Deterministic keyword overrides for known outgoing vendors (overrides LLM drift)
+        if tx.get('direction') == 'out':
+            # Bank transfer fees take priority — a fee line mentioning a vendor's name
+            # (e.g. "رسوم حوالة صادرة | شركة ابيات الاندلس...") is a bank_fee, not a
+            # payment to that vendor.
+            if any(kw in combined for kw in ['رسوم حوالة', 'رسوم تحويل', 'Commission', 'commission']):
+                tx['category'] = 'bank_fee'
+                tx['daftra_action'] = 'record_expense'
+            else:
+                for kw, forced_cat in CATEGORY_KEYWORD_OVERRIDES:
+                    if kw.lower() in combined.lower():
+                        tx['category'] = forced_cat
+                        if forced_cat in EXPENSE_CATS:
+                            tx['daftra_action'] = 'record_expense'
+                        elif forced_cat in ('local_supplier', 'china_supplier'):
+                            tx['daftra_action'] = 'match_purchase_invoice'
+                        break
+
+        emp_id = extract_id_from_text(combined)
+        if emp_id and emp_id in EMPLOYEE_IDS and tx.get('direction') == 'out':
+            emp_name = EMPLOYEE_IDS[emp_id]
+            emp_cat = EMPLOYEE_CATEGORY.get(emp_id, 'salary')
+            # ✅ If transaction is Iqama/government fee, override to government even if employee name found
+            iqama_keywords = ['iqama', 'إقامة', 'renew', 'expatriate', 'تجديد']
+            if any(kw in combined.lower() for kw in iqama_keywords):
+                emp_cat = 'government'
+            tx['category'] = emp_cat
+            tx['party'] = emp_name
+            tx['notes'] = f"{description} - {emp_name} - ID: {emp_id}"
+            tx['daftra_action'] = 'record_expense'
+
+        if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
+            matches = match_payment(amt, open_sales, party, description, 'Invoice')
+            tx['invoice_matches'] = matches
+            tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
+        elif tx.get('direction') == 'out' and tx.get('category') in ['local_supplier', 'china_supplier']:
+            matches = match_payment(amt, open_purchases, party, description, 'PurchaseInvoice')
+            tx['purchase_invoice_matches'] = matches
+            tx['daftra_action'] = 'match_purchase_invoice' if matches else 'waiting_list_purchase'
+    return transactions
+
+def _do_analysis(bank_text):
+    ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+    header_lines = bank_text.split('\n')[:10]
+    try:
+        hdr_msg = ai_client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=200,
+            messages=[{"role": "user", "content": 'Extract bank name, period, opening balance, closing balance. Return ONLY JSON: {"bank":"","period":"","opening":0,"closing":0}\n\n' + '\n'.join(header_lines)}]
+        )
+        hm = re.search(r'\{[^}]+\}', hdr_msg.content[0].text)
+        header = json.loads(hm.group()) if hm else {"bank": "الراجحي", "period": "", "opening": 0, "closing": 0}
+    except:
+        header = {"bank": "الراجحي", "period": "", "opening": 0, "closing": 0}
+
+    all_lines = [l.strip() for l in bank_text.split('\n') if l.strip()]
+    tx_lines = [l for l in all_lines if re.search(r'\d{4}-\d{2}-\d{2}|\d{2}/\d{2}/\d{4}', l)]
+    if not tx_lines: tx_lines = all_lines
+
+    BATCH_SIZE = 15
+    batches = [tx_lines[i:i+BATCH_SIZE] for i in range(0, len(tx_lines), BATCH_SIZE)]
+    all_transactions = []
+    for batch in batches:
+        try:
+            all_transactions.extend(_call_claude_batch(batch, ai_client))
+        except:
+            continue
+
+    needs_sales = any(t.get('direction') == 'in' and t.get('category') == 'client_payment' for t in all_transactions)
+    needs_purchases = any(t.get('direction') == 'out' and t.get('category') in ['local_supplier', 'china_supplier'] for t in all_transactions)
+    open_sales = get_open_invoices('sales') if needs_sales else []
+    open_purchases = get_open_invoices('purchase') if needs_purchases else []
+    all_transactions = _enrich_transactions(all_transactions, open_sales, open_purchases)
+    return {**header, 'transactions': all_transactions}
 
 def _run_analysis(job_id, bank_text):
     try:
-        _jobs[job_id] = {'status': 'running'}
-        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-        msg = ai_client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=8000,
-            messages=[{"role": "user", "content": PROMPT + "\n\n" + bank_text[:50000]}]
-        )
-        raw = msg.content[0].text
-        m = re.search(r'\{[\s\S]*\}', raw)
-        result = json.loads(m.group() if m else raw)
-        transactions = result.get('transactions', [])
-
-        needs_sales = any(t.get('direction') == 'in' and t.get('category') == 'client_payment' for t in transactions)
-        needs_purchases = any(t.get('direction') == 'out' and t.get('category') in ['local_supplier', 'china_supplier'] for t in transactions)
-        open_sales = get_open_invoices('sales') if needs_sales else []
-        open_purchases = get_open_invoices('purchase') if needs_purchases else []
-
-        for tx in transactions:
-            amt = float(tx.get('amount', 0))
-            party = tx.get('party', '') or ''
-            description = tx.get('description', '') or ''
-            combined = f"{party} {description}"
-            emp_id = extract_id_from_text(combined)
-            if emp_id and emp_id in EMPLOYEE_IDS:
-                emp_name = EMPLOYEE_IDS[emp_id]
-                emp_cat = EMPLOYEE_CATEGORY.get(emp_id, 'salary')
-                tx['category'] = emp_cat
-                tx['party'] = emp_name
-                if not tx.get('notes'):
-                    tx['notes'] = f"{description} - {emp_name} - ID: {emp_id}"
-                tx['daftra_action'] = 'record_expense'
-            if tx.get('direction') == 'in' and tx.get('category') == 'client_payment':
-                matches = match_payment(amt, open_sales, party, description, 'Invoice')
-                tx['invoice_matches'] = matches
-                tx['daftra_action'] = 'match_invoice' if matches else 'waiting_list'
-            elif tx.get('direction') == 'out' and tx.get('category') in ['local_supplier', 'china_supplier']:
-                matches = match_payment(amt, open_purchases, party, description, 'PurchaseInvoice')
-                tx['purchase_invoice_matches'] = matches
-                tx['daftra_action'] = 'match_purchase_invoice' if matches else 'waiting_list_purchase'
-
-        result['transactions'] = transactions
-        _jobs[job_id] = {'status': 'done', 'result': result}
+        _save_job(job_id, {'status': 'running'})
+        result = _do_analysis(bank_text)
+        _save_job(job_id, {'status': 'done', 'result': result})
     except Exception as e:
-        _jobs[job_id] = {'status': 'error', 'error': str(e)}
+        _save_job(job_id, {'status': 'error', 'error': str(e)})
 
 @app.route('/bank-sync')
 def bank_sync():
@@ -273,6 +556,45 @@ def open_purchase_invoices_endpoint():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     return cors(make_response(jsonify({'invoices': get_open_invoices('purchase')}), 200))
 
+@app.route('/analyze-batch', methods=['POST', 'OPTIONS'])
+def analyze_batch_endpoint():
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    lines = data.get('lines', [])
+    is_first = data.get('is_first', False)
+    header_text = data.get('header_text', '')
+    if not lines: return cors(make_response(jsonify({'transactions': []}), 200))
+    if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key'}), 500))
+    try:
+        ai_client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+        txns = _call_claude_batch(lines, ai_client)
+        result = {'transactions': txns}
+        if is_first and header_text:
+            try:
+                hdr_msg = ai_client.messages.create(
+                    model="claude-haiku-4-5-20251001", max_tokens=200,
+                    messages=[{"role": "user", "content": 'Extract bank, period, opening, closing. Return ONLY JSON: {"bank":"","period":"","opening":0,"closing":0}\n\n' + header_text}]
+                )
+                hm = re.search(r'\{[^}]+\}', hdr_msg.content[0].text)
+                if hm: result.update(json.loads(hm.group()))
+            except: pass
+        return cors(make_response(jsonify(result), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e), 'transactions': []}), 200))
+
+@app.route('/analyze-bank-sync', methods=['POST', 'OPTIONS'])
+def analyze_bank_sync():
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    bank_text = data.get('text', '')
+    if not bank_text: return cors(make_response(jsonify({'error': 'No text provided'}), 400))
+    if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
+    try:
+        result = _do_analysis(bank_text)
+        return cors(make_response(jsonify({'status': 'done', 'result': result}), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'status': 'error', 'error': str(e)}), 500))
+
 @app.route('/analyze-bank', methods=['POST', 'OPTIONS'])
 def analyze_bank():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
@@ -281,14 +603,14 @@ def analyze_bank():
     if not bank_text: return cors(make_response(jsonify({'error': 'No text provided'}), 400))
     if not ANTHROPIC_KEY: return cors(make_response(jsonify({'error': 'No API key configured'}), 500))
     job_id = str(uuid.uuid4())
-    _jobs[job_id] = {'status': 'pending'}
+    _save_job(job_id, {'status': 'pending'})
     threading.Thread(target=_run_analysis, args=(job_id, bank_text), daemon=True).start()
     return cors(make_response(jsonify({'job_id': job_id, 'status': 'pending'}), 200))
 
 @app.route('/analysis-result/<job_id>', methods=['GET', 'OPTIONS'])
 def analysis_result(job_id):
     if request.method == 'OPTIONS': return cors(make_response('', 200))
-    job = _jobs.get(job_id)
+    job = _load_job(job_id)
     if not job: return cors(make_response(jsonify({'status': 'not_found'}), 404))
     return cors(make_response(jsonify(job), 200))
 
@@ -345,16 +667,57 @@ def record_purchase_payment():
 def record_expense():
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     data = request.get_json()
-    amount, date, description, category, notes = data.get('amount'), data.get('date'), data.get('description', ''), data.get('category', 'other'), data.get('notes', '')
-    account_id = EXPENSE_ACCOUNT_ID.get(category, '54')
+    amount = data.get('amount')
+    date = data.get('date')
+    description = data.get('description', '') or ''
+    category = data.get('category', 'other')
+    notes = data.get('notes', '') or ''
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '24')
+    # Always ensure description is not empty
+    if not description.strip():
+        description = notes or 'مصروف'
     rich_notes = f"{description} | {notes}" if notes and notes != description else (description or notes)
     headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
     try:
+        expense_payload = {
+            "amount": float(amount),
+            "date": date,
+            "note": rich_notes,
+            "expense_category_id": expense_category_id,
+            "treasury_id": "3"
+        }
+        if category in VAT_CATEGORIES:
+            # Amount from bank is inclusive of 15% VAT — extract base amount
+            # Base = amount / 1.15, Tax = amount - base
+            base_amount = round(float(amount) / 1.15, 2)
+            tax_amount = round(float(amount) - base_amount, 2)
+            expense_payload["amount"] = base_amount
+            expense_payload["ExpenseTax"] = [{"tax_id": "1", "tax_amount": tax_amount}]
         resp = requests.post(f"{DAFTRA_BASE}/expenses", headers=headers, timeout=30,
-            json={"Expense": {"amount": float(amount), "date": date, "description": description,
-                               "notes": rich_notes, "expense_category_id": account_id}})
+            json={"Expense": expense_payload})
         resp_data = resp.json()
         if resp.status_code in [200, 201, 202] or resp_data.get("result") == "successful":
+            return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
+        return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
+@app.route('/edit-expense/<expense_id>', methods=['PUT', 'OPTIONS'])
+def edit_expense(expense_id):
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    category = data.get('category', 'other')
+    expense_category_id = EXPENSE_CATEGORY_ID.get(category, '24')
+    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
+    try:
+        payload = {"Expense": {"expense_category_id": expense_category_id}}
+        if 'description' in data: payload['Expense']['description'] = data['description']
+        if 'amount' in data: payload['Expense']['amount'] = float(data['amount'])
+        if 'date' in data: payload['Expense']['date'] = data['date']
+        if 'notes' in data: payload['Expense']['notes'] = data['notes']
+        resp = requests.put(f"{DAFTRA_BASE}/expenses/{expense_id}", headers=headers, json=payload, timeout=30)
+        resp_data = resp.json()
+        if resp.status_code in [200, 201] or resp_data.get("result") == "successful":
             return cors(make_response(jsonify({'success': True, 'data': resp_data}), 200))
         return cors(make_response(jsonify({'error': resp_data}), resp.status_code))
     except Exception as e:
@@ -405,10 +768,8 @@ def execute_deletions():
 
 @app.route('/find-invoice/<invoice_no>', methods=['GET', 'OPTIONS'])
 def find_invoice(invoice_no):
-    """Find invoice by number (no field) or ID"""
     if request.method == 'OPTIONS': return cors(make_response('', 200))
     try:
-        # Try direct ID lookup first
         r = requests.get(f"{DAFTRA_BASE}/invoices/{invoice_no}", headers={'APIKEY': APIKEY}, timeout=15)
         data = r.json()
         inv = data.get('data', {})
@@ -416,7 +777,6 @@ def find_invoice(invoice_no):
         inv_obj = inv.get('Invoice', inv)
         if inv_obj.get('id'):
             return cors(make_response(jsonify({'found': True, 'invoice': inv_obj}), 200))
-        # Try searching by invoice number
         search = requests.get(f"{DAFTRA_BASE}/invoices", headers={'APIKEY': APIKEY},
                               params={'no': invoice_no, 'limit': 5}, timeout=15)
         results = search.json().get('data', [])
@@ -425,6 +785,57 @@ def find_invoice(invoice_no):
             if i.get('no') == invoice_no or i.get('no') == invoice_no.lstrip('0') or str(i.get('id')) == invoice_no:
                 return cors(make_response(jsonify({'found': True, 'invoice': i}), 200))
         return cors(make_response(jsonify({'found': False}), 200))
+    except Exception as e:
+        return cors(make_response(jsonify({'error': str(e)}), 500))
+
+
+@app.route('/record-client-payment', methods=['POST', 'OPTIONS'])
+def record_client_payment():
+    """Record a payment for a client — creates client if not found, then records payment."""
+    if request.method == 'OPTIONS': return cors(make_response('', 200))
+    data = request.get_json()
+    amount = data.get('amount')
+    date = data.get('date')
+    party = data.get('party', '') or ''
+    notes = data.get('notes', '') or ''
+    headers = {'APIKEY': APIKEY, 'Content-Type': 'application/json'}
+    try:
+        # Step 1: Search for existing client
+        client_id = None
+        search = requests.get(f"{DAFTRA_BASE}/clients", headers=headers,
+                              params={'business_name': party, 'limit': 5}, timeout=15)
+        clients = search.json().get('data', [])
+        for c in clients:
+            cl = c.get('Client', c)
+            name = (cl.get('business_name') or cl.get('name') or '').strip()
+            if name and (name in party or party in name):
+                client_id = cl.get('id')
+                break
+
+        # Step 2: Create client if not found
+        if not client_id:
+            create_resp = requests.post(f"{DAFTRA_BASE}/clients", headers=headers, timeout=15,
+                json={"Client": {"business_name": party, "type": "1"}})
+            create_data = create_resp.json()
+            client_id = (create_data.get('data') or {}).get('id') or create_data.get('id')
+
+        if not client_id:
+            return cors(make_response(jsonify({'error': 'Could not create client'}), 500))
+
+        # Step 3: Record client payment (advance payment, no invoice)
+        pay_resp = requests.post(f"{DAFTRA_BASE}/client_payments", headers=headers, timeout=30,
+            json={"ClientPayment": {
+                "client_id": str(client_id),
+                "amount": float(amount),
+                "date": date,
+                "payment_method": "3",
+                "treasury_id": "3",
+                "notes": notes or party
+            }})
+        pay_data = pay_resp.json()
+        if pay_resp.status_code in [200, 201] or pay_data.get("result") == "successful":
+            return cors(make_response(jsonify({'success': True, 'client_id': client_id, 'data': pay_data}), 200))
+        return cors(make_response(jsonify({'error': pay_data}), pay_resp.status_code))
     except Exception as e:
         return cors(make_response(jsonify({'error': str(e)}), 500))
 
